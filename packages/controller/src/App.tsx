@@ -40,6 +40,14 @@ export default function App() {
     const wsUrl = `ws://${wsHost}`;
     console.log('Connecting to', wsUrl);
 
+    // Check if we have a server address when on HTTPS
+    if (window.location.protocol === 'https:' && !serverAddress) {
+      setError('Server address required. Please scan QR code from the game display.');
+      return;
+    }
+
+    // Note: HTTPS pages connecting to ws:// may be blocked by browsers (mixed content)
+    // This works when the server is on a private/local IP in most browsers
     const ws = new WebSocket(wsUrl);
     wsRef.current = ws;
 
@@ -85,8 +93,13 @@ export default function App() {
       setAppState('join');
     };
 
-    ws.onerror = () => {
-      setError('Could not connect to server');
+    ws.onerror = (err) => {
+      console.error('WebSocket error:', err);
+      if (window.location.protocol === 'https:') {
+        setError('Connection failed. Make sure the game server is running and you\'re on the same WiFi network.');
+      } else {
+        setError('Could not connect to server. Is the game running?');
+      }
     };
 
     setRoomCode(room);
