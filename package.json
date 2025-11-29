@@ -1,0 +1,21 @@
+{
+  "name": "game-zero",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Game-Zero: Multi-game platform with smartphone controllers",
+  "scripts": {
+    "dev": "concurrently \"pnpm --filter server dev\" \"pnpm --filter display dev\" \"pnpm --filter controller dev\"",
+    "dev:server": "pnpm --filter server dev",
+    "dev:display": "pnpm --filter display dev",
+    "dev:controller": "pnpm --filter controller dev",
+    "build": "pnpm -r build",
+    "clean": "pnpm -r clean"
+  },
+  "devDependencies": {
+    "concurrently": "^8.2.2",
+    "typescript": "^5.3.3"
+  },
+  "engines": {
+    "node": ">=18"
+  }
+}
