@@ -76,17 +76,29 @@ export function Controller({ ship, onInput }: ControllerProps) {
         // Flip sign based on which way landscape is oriented
         const beta = event.beta || 0;
         const gamma = event.gamma || 0;
-        steerTilt = orientation === 90 || orientation === -270 ? -beta : beta;
+        // Inverted: positive beta = tilt right = turn right
+        steerTilt = orientation === 90 || orientation === -270 ? beta : -beta;
         // Forward tilt (gamma) for thrust - negative gamma = tilted forward
         thrustTilt = orientation === 90 || orientation === -270 ? gamma : -gamma;
       } else {
-        // Portrait: gamma controls left-right tilt
-        steerTilt = event.gamma || 0;
+        // Portrait: gamma controls left-right tilt (inverted)
+        steerTilt = -(event.gamma || 0);
         thrustTilt = -(event.beta || 0); // Forward tilt in portrait
       }
 
+      // Dead zone around neutral position (ignore small tilts)
+      const deadZone = 8; // degrees
       const maxTilt = 35;
-      const normalizedSteer = Math.max(-1, Math.min(1, steerTilt / maxTilt));
+
+      let normalizedSteer: number;
+      if (Math.abs(steerTilt) < deadZone) {
+        normalizedSteer = 0; // In dead zone - no steering
+      } else {
+        // Scale the remaining range (deadZone to maxTilt) to 0-1
+        const adjustedTilt = (Math.abs(steerTilt) - deadZone) / (maxTilt - deadZone);
+        normalizedSteer = Math.sign(steerTilt) * Math.min(1, adjustedTilt);
+      }
+
       inputRef.current.rotation = normalizedSteer;
       setTiltValue(normalizedSteer);
 
