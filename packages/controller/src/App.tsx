@@ -9,7 +9,6 @@ type AppState = 'join' | 'waiting' | 'playing';
 export default function App() {
   const [appState, setAppState] = useState<AppState>('join');
   const [roomCode, setRoomCode] = useState<string>('');
-  const [playerName, setPlayerName] = useState<string>('');
   const [myShip, setMyShip] = useState<Ship | null>(null);
   const [error, setError] = useState<string>('');
 
@@ -91,7 +90,6 @@ export default function App() {
     };
 
     setRoomCode(room);
-    setPlayerName(name);
   }, [serverAddress]);
 
   const sendInput = useCallback((rotation: number, thrust: boolean, fire: boolean) => {
