@@ -40,10 +40,12 @@ export default function App() {
 
     // Server can be passed as URL param (for cloud-hosted controller)
     // Format: ?server=192.168.1.50:3000 or ?server=192.168.1.50 (defaults to port 3000)
+    // Exception: Cloudflare tunnels don't need a port (they use HTTPS 443)
     if (server) {
-      const serverWithPort = server.includes(':') ? server : `${server}:3000`;
+      const isTunnel = server.includes('trycloudflare.com') || server.includes('cloudflare');
+      const serverWithPort = isTunnel ? server : (server.includes(':') ? server : `${server}:3000`);
       setServerAddress(serverWithPort);
-      log(`Server address set: ${serverWithPort}`);
+      log(`Server address set: ${serverWithPort} (tunnel: ${isTunnel})`);
     }
   }, [log]);
 
