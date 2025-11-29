@@ -11,8 +11,15 @@ export default function App() {
   const [roomCode, setRoomCode] = useState<string>('');
   const [myShip, setMyShip] = useState<Ship | null>(null);
   const [error, setError] = useState<string>('');
+  const [debugLog, setDebugLog] = useState<string[]>([]);
 
   const wsRef = useRef<WebSocket | null>(null);
+
+  // Debug logger that shows on UI
+  const log = useCallback((msg: string) => {
+    console.log('[DEBUG]', msg);
+    setDebugLog(prev => [...prev.slice(-9), `${new Date().toLocaleTimeString()}: ${msg}`]);
+  }, []);
 
   // Check URL params for room code and server
   const [serverAddress, setServerAddress] = useState<string | null>(null);
@@ -21,6 +28,11 @@ export default function App() {
     const params = new URLSearchParams(window.location.search);
     const room = params.get('room');
     const server = params.get('server');
+
+    log(`URL: ${window.location.href}`);
+    log(`Protocol: ${window.location.protocol}`);
+    log(`Room param: ${room || '(none)'}`);
+    log(`Server param: ${server || '(none)'}`);
 
     if (room) {
       setRoomCode(room.toUpperCase());
@@ -31,79 +43,96 @@ export default function App() {
     if (server) {
       const serverWithPort = server.includes(':') ? server : `${server}:3000`;
       setServerAddress(serverWithPort);
+      log(`Server address set: ${serverWithPort}`);
     }
-  }, []);
+  }, [log]);
 
   const connect = useCallback((room: string, name: string) => {
+    log(`Connect called: room=${room}, name=${name}`);
+    log(`serverAddress state: ${serverAddress || '(null)'}`);
+
     // Use server from URL param, or fall back to same host as controller
     const wsHost = serverAddress || `${window.location.hostname || 'localhost'}:${SERVER_PORT}`;
     const wsUrl = `ws://${wsHost}`;
-    console.log('Connecting to', wsUrl);
+    log(`WebSocket URL: ${wsUrl}`);
 
     // Check if we have a server address when on HTTPS
     if (window.location.protocol === 'https:' && !serverAddress) {
-      setError('Server address required. Please scan QR code from the game display.');
+      const err = 'Server address required. Please scan QR code from the game display.';
+      log(`ERROR: ${err}`);
+      setError(err);
       return;
     }
 
     // Note: HTTPS pages connecting to ws:// may be blocked by browsers (mixed content)
     // This works when the server is on a private/local IP in most browsers
-    const ws = new WebSocket(wsUrl);
-    wsRef.current = ws;
+    log('Creating WebSocket...');
+    try {
+      const ws = new WebSocket(wsUrl);
+      wsRef.current = ws;
+      log('WebSocket created, waiting for connection...');
 
-    ws.onopen = () => {
-      console.log('Connected, joining room', room);
-      ws.send(JSON.stringify({
-        type: 'join_room',
-        roomCode: room,
-        playerName: name,
-      }));
-    };
+      ws.onopen = () => {
+        log('WebSocket OPEN - sending join_room');
+        ws.send(JSON.stringify({
+          type: 'join_room',
+          roomCode: room,
+          playerName: name,
+        }));
+      };
 
-    ws.onmessage = (event) => {
-      try {
-        const message: ServerMessage = JSON.parse(event.data);
+      ws.onmessage = (event) => {
+        try {
+          const message: ServerMessage = JSON.parse(event.data);
+          log(`Message received: ${message.type}`);
 
-        switch (message.type) {
-          case 'room_update':
-            if (message.room?.phase === 'lobby') {
-              setAppState('waiting');
-            } else if (message.room?.phase === 'playing') {
-              setAppState('playing');
-            }
-            break;
-          case 'game_state':
-            if (message.yourShipId) {
-              const ship = message.state.ships.find(s => s.id === message.yourShipId);
-              if (ship) setMyShip(ship);
-            }
-            break;
-          case 'error':
-            setError(message.message);
-            setAppState('join');
-            break;
+          switch (message.type) {
+            case 'room_update':
+              if (message.room?.phase === 'lobby') {
+                log('Room phase: lobby -> waiting');
+                setAppState('waiting');
+              } else if (message.room?.phase === 'playing') {
+                log('Room phase: playing');
+                setAppState('playing');
+              }
+              break;
+            case 'game_state':
+              if (message.yourShipId) {
+                const ship = message.state.ships.find(s => s.id === message.yourShipId);
+                if (ship) setMyShip(ship);
+              }
+              break;
+            case 'error':
+              log(`Server error: ${message.message}`);
+              setError(message.message);
+              setAppState('join');
+              break;
+          }
+        } catch (e) {
+          log(`Message parse error: ${e}`);
         }
-      } catch (e) {
-        console.error('Message handling error:', e);
-      }
-    };
+      };
 
-    ws.onclose = () => {
-      console.log('Disconnected');
-      setAppState('join');
-    };
+      ws.onclose = (event) => {
+        log(`WebSocket CLOSED: code=${event.code}, reason=${event.reason || '(none)'}`);
+        setAppState('join');
+      };
 
-    ws.onerror = (err) => {
-      console.error('WebSocket error:', err);
-      if (window.location.protocol === 'https:') {
-        setError('Connection failed. Make sure the game server is running and you\'re on the same WiFi network.');
-      } else {
-        setError('Could not connect to server. Is the game running?');
-      }
-    };
+      ws.onerror = (err) => {
+        log(`WebSocket ERROR: ${err.type}`);
+        if (window.location.protocol === 'https:') {
+          setError('Connection failed. Make sure the game server is running and you\'re on the same WiFi network.');
+        } else {
+          setError('Could not connect to server. Is the game running?');
+        }
+      };
+    } catch (e) {
+      log(`WebSocket creation failed: ${e}`);
+      setError(`Failed to create connection: ${e}`);
+    }
 
     setRoomCode(room);
-  }, [serverAddress]);
+  }, [serverAddress, log]);
 
   const sendInput = useCallback((rotation: number, thrust: boolean, fire: boolean) => {
     if (wsRef.current?.readyState === WebSocket.OPEN) {
@@ -127,6 +156,7 @@ export default function App() {
         initialRoomCode={roomCode}
         error={error}
         onJoin={connect}
+        debugLog={debugLog}
       />
     );
   }

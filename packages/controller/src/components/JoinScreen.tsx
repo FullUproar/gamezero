@@ -4,9 +4,10 @@ interface JoinScreenProps {
   initialRoomCode: string;
   error: string;
   onJoin: (roomCode: string, playerName: string) => void;
+  debugLog?: string[];
 }
 
-export function JoinScreen({ initialRoomCode, error, onJoin }: JoinScreenProps) {
+export function JoinScreen({ initialRoomCode, error, onJoin, debugLog = [] }: JoinScreenProps) {
   const [roomCode, setRoomCode] = useState(initialRoomCode);
   const [playerName, setPlayerName] = useState('');
 
@@ -78,6 +79,16 @@ export function JoinScreen({ initialRoomCode, error, onJoin }: JoinScreenProps) 
           JOIN GAME
         </button>
       </form>
+
+      {/* Debug log */}
+      {debugLog.length > 0 && (
+        <div style={debugStyle}>
+          <p style={{ color: '#FF6B6B', marginBottom: '4px', fontSize: '0.7rem' }}>DEBUG:</p>
+          {debugLog.map((line, i) => (
+            <p key={i} style={{ margin: 0, fontSize: '0.65rem', color: '#888' }}>{line}</p>
+          ))}
+        </div>
+      )}
     </div>
   );
 }
@@ -153,4 +164,17 @@ const hintStyle: React.CSSProperties = {
   color: '#888',
   textAlign: 'center',
   fontSize: '0.85rem',
+};
+
+const debugStyle: React.CSSProperties = {
+  position: 'fixed',
+  bottom: 10,
+  left: 10,
+  right: 10,
+  backgroundColor: 'rgba(0,0,0,0.8)',
+  padding: '8px',
+  borderRadius: '4px',
+  maxHeight: '150px',
+  overflow: 'auto',
+  fontFamily: 'monospace',
 };
