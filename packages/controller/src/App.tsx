@@ -53,8 +53,14 @@ export default function App() {
 
     // Use server from URL param, or fall back to same host as controller
     const wsHost = serverAddress || `${window.location.hostname || 'localhost'}:${SERVER_PORT}`;
-    const wsUrl = `ws://${wsHost}`;
-    log(`WebSocket URL: ${wsUrl}`);
+
+    // Use WSS for Cloudflare tunnels and other HTTPS endpoints, WS for local
+    const isSecureEndpoint = wsHost.includes('trycloudflare.com') ||
+                             wsHost.includes('cloudflare') ||
+                             window.location.protocol === 'https:';
+    const wsProtocol = isSecureEndpoint ? 'wss' : 'ws';
+    const wsUrl = `${wsProtocol}://${wsHost}`;
+    log(`WebSocket URL: ${wsUrl} (secure: ${isSecureEndpoint})`);
 
     // Check if we have a server address when on HTTPS
     if (window.location.protocol === 'https:' && !serverAddress) {
@@ -64,8 +70,6 @@ export default function App() {
       return;
     }
 
-    // Note: HTTPS pages connecting to ws:// may be blocked by browsers (mixed content)
-    // This works when the server is on a private/local IP in most browsers
     log('Creating WebSocket...');
     try {
       const ws = new WebSocket(wsUrl);

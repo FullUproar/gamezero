@@ -2,7 +2,7 @@ import React, { useEffect, useState, useRef, useCallback } from 'react';
 import * as PIXI from 'pixi.js';
 import QRCode from 'qrcode';
 import type { ServerMessage, GameState, RoomInfo, Ship, Asteroid, Bullet } from '@game-zero/shared';
-import { SERVER_PORT, CONTROLLER_URL, GAME_CONFIG } from '@game-zero/shared';
+import { SERVER_PORT, CONTROLLER_PORT, CONTROLLER_URL, GAME_CONFIG } from '@game-zero/shared';
 
 type AppState = 'connecting' | 'lobby' | 'playing';
 
@@ -80,10 +80,12 @@ export default function App() {
 
   // Generate QR code when room is created
   useEffect(() => {
-    if (!roomCode || !serverIp) return;
+    if (!roomCode) return;
 
-    // Use cloud-hosted controller URL with local server as parameter
-    const controllerUrl = `${CONTROLLER_URL}?room=${roomCode}&server=${serverIp}:${SERVER_PORT}`;
+    // Use the Cloudflare Tunnel URL for WSS connection from HTTPS controller
+    // This allows gamezero.live (HTTPS) to connect via WSS to the local game server
+    const tunnelUrl = 'picture-foam-cables-learned.trycloudflare.com';
+    const controllerUrl = `${CONTROLLER_URL}?room=${roomCode}&server=${tunnelUrl}`;
     console.log('QR Code URL:', controllerUrl);
 
     QRCode.toDataURL(controllerUrl, {
@@ -91,7 +93,7 @@ export default function App() {
       margin: 2,
       color: { dark: '#ffffff', light: '#0a0a12' },
     }).then(setQrDataUrl);
-  }, [roomCode, serverIp]);
+  }, [roomCode]);
 
   // WebSocket connection
   useEffect(() => {
@@ -317,7 +319,7 @@ export default function App() {
           </div>
 
           <p style={{ color: '#555', marginTop: '2rem', fontSize: '0.9rem' }}>
-            {CONTROLLER_URL}?room={roomCode}
+            http://{serverIp}:{CONTROLLER_PORT}?room={roomCode}
           </p>
         </div>
       )}
