@@ -45,6 +45,17 @@ export interface Bullet {
   lifetime: number; // Seconds remaining
 }
 
+// === EXPLOSION ===
+
+export interface Explosion {
+  id: string;
+  position: Vector2;
+  color: string;
+  size: 'small' | 'medium' | 'large'; // small=bullet, medium=ship, large=big asteroid
+  lifetime: number; // Seconds remaining (starts at ~0.5)
+  maxLifetime: number; // For calculating progress
+}
+
 // === GAME STATE ===
 
 export interface GameState {
@@ -54,6 +65,7 @@ export interface GameState {
   ships: Ship[];
   asteroids: Asteroid[];
   bullets: Bullet[];
+  explosions: Explosion[];
   worldSize: Vector2;
 }
 

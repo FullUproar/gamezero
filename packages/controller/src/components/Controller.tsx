@@ -87,8 +87,8 @@ export function Controller({ ship, onInput }: ControllerProps) {
       }
 
       // Dead zone around neutral position (ignore small tilts)
-      const deadZone = 8; // degrees
-      const maxTilt = 35;
+      const deadZone = 5; // degrees - smaller for more responsive steering
+      const maxTilt = 25; // degrees - lower for easier full turn
 
       let normalizedSteer: number;
       if (Math.abs(steerTilt) < deadZone) {
@@ -103,10 +103,10 @@ export function Controller({ ship, onInput }: ControllerProps) {
       setTiltValue(normalizedSteer);
 
       // Thrust when tilted forward past threshold (negative values = forward)
-      const thrustThreshold = 15; // degrees of forward tilt to activate thrust
+      const thrustThreshold = 22; // degrees of forward tilt to activate thrust (less sensitive)
       const isThrusting = thrustTilt < -thrustThreshold;
       inputRef.current.thrust = isThrusting;
-      setThrustValue(Math.max(0, Math.min(1, -thrustTilt / 45))); // 0-1 for visual
+      setThrustValue(Math.max(0, Math.min(1, (-thrustTilt - 10) / 50))); // 0-1 for visual, offset start
     };
 
     window.addEventListener('deviceorientation', handleOrientation);

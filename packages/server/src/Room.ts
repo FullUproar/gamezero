@@ -1,4 +1,4 @@
-import type { Ship, Player, GameState, PlayerInput, Asteroid, Bullet } from '@game-zero/shared';
+import type { Ship, Player, GameState, PlayerInput, Asteroid, Bullet, Explosion } from '@game-zero/shared';
 import { GAME_CONFIG } from '@game-zero/shared';
 
 export class Room {
@@ -7,6 +7,7 @@ export class Room {
   ships: Map<string, Ship> = new Map();
   asteroids: Map<string, Asteroid> = new Map();
   bullets: Map<string, Bullet> = new Map();
+  explosions: Map<string, Explosion> = new Map();
   phase: 'lobby' | 'playing' | 'gameover' = 'lobby';
   tick = 0;
   private colorIndex = 0;
@@ -21,7 +22,24 @@ export class Room {
     return `${this.code}-${++this.idCounter}`;
   }
 
+  // Find existing player by name (for duplicate detection)
+  findPlayerByName(name: string): { id: string; player: Player } | null {
+    for (const [id, player] of this.players) {
+      if (player.name.toLowerCase() === name.toLowerCase()) {
+        return { id, player };
+      }
+    }
+    return null;
+  }
+
   addPlayer(id: string, name: string): Player {
+    // Check for existing player with same name and remove them
+    const existing = this.findPlayerByName(name);
+    if (existing) {
+      console.log(`Removing duplicate player: ${existing.player.name} (${existing.id})`);
+      this.removePlayer(existing.id);
+    }
+
     const color = GAME_CONFIG.PLAYER_COLORS[this.colorIndex % GAME_CONFIG.PLAYER_COLORS.length];
     this.colorIndex++;
 
@@ -132,11 +150,33 @@ export class Room {
     this.asteroids.set(asteroid.id, asteroid);
   }
 
+  private spawnExplosion(
+    position: { x: number; y: number },
+    color: string,
+    size: 'small' | 'medium' | 'large'
+  ): void {
+    const lifetimes = { small: 0.3, medium: 0.5, large: 0.7 };
+    const lifetime = lifetimes[size];
+    const explosion: Explosion = {
+      id: this.generateId(),
+      position: { ...position },
+      color,
+      size,
+      lifetime,
+      maxLifetime: lifetime,
+    };
+    this.explosions.set(explosion.id, explosion);
+  }
+
   private splitAsteroid(asteroid: Asteroid, bulletOwnerId: string): void {
     const ship = this.ships.get(bulletOwnerId);
     if (ship) {
       ship.score += GAME_CONFIG.ASTEROID_SIZES[asteroid.size].score;
     }
+
+    // Create explosion
+    const explosionSize = asteroid.size === 'large' ? 'large' : asteroid.size === 'medium' ? 'medium' : 'small';
+    this.spawnExplosion(asteroid.position, '#888888', explosionSize);
 
     // Spawn smaller asteroids
     if (asteroid.size === 'large') {
@@ -227,6 +267,16 @@ export class Room {
       this.asteroidSpawnTimer = GAME_CONFIG.ASTEROID_SPAWN_INTERVAL;
     }
 
+    // Update explosions
+    const explosionsToRemove: string[] = [];
+    for (const explosion of this.explosions.values()) {
+      explosion.lifetime -= dt;
+      if (explosion.lifetime <= 0) {
+        explosionsToRemove.push(explosion.id);
+      }
+    }
+    explosionsToRemove.forEach((id) => this.explosions.delete(id));
+
     // Check collisions
     this.checkCollisions();
   }
@@ -242,9 +292,12 @@ export class Room {
     const asteroidsToRemove: string[] = [];
     const bulletsToRemove: string[] = [];
     const asteroidSplits: { asteroid: Asteroid; ownerId: string }[] = [];
+    const shipsToKill: { ship: Ship; killerId?: string }[] = [];
 
     // Bullet vs Asteroid
     for (const bullet of this.bullets.values()) {
+      if (bulletsToRemove.includes(bullet.id)) continue;
+
       for (const asteroid of this.asteroids.values()) {
         if (this.circleCollision(
           bullet.position, GAME_CONFIG.BULLET_RADIUS,
@@ -253,6 +306,25 @@ export class Room {
           bulletsToRemove.push(bullet.id);
           asteroidsToRemove.push(asteroid.id);
           asteroidSplits.push({ asteroid, ownerId: bullet.ownerId });
+          break;
+        }
+      }
+    }
+
+    // Bullet vs Ship (player combat!)
+    for (const bullet of this.bullets.values()) {
+      if (bulletsToRemove.includes(bullet.id)) continue;
+
+      for (const ship of this.ships.values()) {
+        // Don't hit own ship, and skip dead ships
+        if (ship.id === bullet.ownerId || !ship.isAlive) continue;
+
+        if (this.circleCollision(
+          bullet.position, GAME_CONFIG.BULLET_RADIUS,
+          ship.position, GAME_CONFIG.SHIP_RADIUS
+        )) {
+          bulletsToRemove.push(bullet.id);
+          shipsToKill.push({ ship, killerId: bullet.ownerId });
           break;
         }
       }
@@ -267,8 +339,29 @@ export class Room {
           ship.position, GAME_CONFIG.SHIP_RADIUS,
           asteroid.position, asteroid.radius
         )) {
-          this.killShip(ship);
+          shipsToKill.push({ ship });
           break;
+        }
+      }
+    }
+
+    // Ship vs Ship (ram combat!)
+    const shipArray = Array.from(this.ships.values());
+    for (let i = 0; i < shipArray.length; i++) {
+      const ship1 = shipArray[i];
+      if (!ship1.isAlive) continue;
+
+      for (let j = i + 1; j < shipArray.length; j++) {
+        const ship2 = shipArray[j];
+        if (!ship2.isAlive) continue;
+
+        if (this.circleCollision(
+          ship1.position, GAME_CONFIG.SHIP_RADIUS,
+          ship2.position, GAME_CONFIG.SHIP_RADIUS
+        )) {
+          // Both ships die in a collision
+          shipsToKill.push({ ship: ship1 });
+          shipsToKill.push({ ship: ship2 });
         }
       }
     }
@@ -276,6 +369,15 @@ export class Room {
     // Apply removals
     bulletsToRemove.forEach((id) => this.bullets.delete(id));
     asteroidsToRemove.forEach((id) => this.asteroids.delete(id));
+
+    // Kill ships (dedupe in case ship was added multiple times)
+    const killedShips = new Set<string>();
+    shipsToKill.forEach(({ ship, killerId }) => {
+      if (!killedShips.has(ship.id) && ship.isAlive) {
+        killedShips.add(ship.id);
+        this.killShip(ship, killerId);
+      }
+    });
 
     // Apply splits after removal
     asteroidSplits.forEach(({ asteroid, ownerId }) => {
@@ -294,7 +396,18 @@ export class Room {
     return distSq <= radiusSum * radiusSum;
   }
 
-  private killShip(ship: Ship): void {
+  private killShip(ship: Ship, killerId?: string): void {
+    // Award points to killer if this was a player kill
+    if (killerId && killerId !== ship.id) {
+      const killer = this.ships.get(killerId);
+      if (killer) {
+        killer.score += 50; // Points for killing another player
+      }
+    }
+
+    // Create explosion at ship position
+    this.spawnExplosion(ship.position, ship.color, 'medium');
+
     ship.isAlive = false;
     ship.respawnTimer = GAME_CONFIG.SHIP_RESPAWN_TIME;
     ship.velocity = { x: 0, y: 0 };
@@ -331,6 +444,7 @@ export class Room {
       ships: Array.from(this.ships.values()),
       asteroids: Array.from(this.asteroids.values()),
       bullets: Array.from(this.bullets.values()),
+      explosions: Array.from(this.explosions.values()),
       worldSize: {
         x: GAME_CONFIG.WORLD_WIDTH,
         y: GAME_CONFIG.WORLD_HEIGHT,

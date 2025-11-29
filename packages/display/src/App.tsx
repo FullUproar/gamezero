@@ -1,7 +1,7 @@
 import React, { useEffect, useState, useRef, useCallback } from 'react';
 import * as PIXI from 'pixi.js';
 import QRCode from 'qrcode';
-import type { ServerMessage, GameState, RoomInfo, Ship, Asteroid, Bullet } from '@game-zero/shared';
+import type { ServerMessage, GameState, RoomInfo, Ship, Asteroid, Bullet, Explosion } from '@game-zero/shared';
 import { SERVER_PORT, CONTROLLER_PORT, CONTROLLER_URL, GAME_CONFIG } from '@game-zero/shared';
 
 type AppState = 'connecting' | 'lobby' | 'playing';
@@ -19,6 +19,7 @@ export default function App() {
   const shipsRef = useRef<Map<string, PIXI.Container>>(new Map());
   const asteroidsRef = useRef<Map<string, PIXI.Container>>(new Map());
   const bulletsRef = useRef<Map<string, PIXI.Graphics>>(new Map());
+  const explosionsRef = useRef<Map<string, PIXI.Container>>(new Map());
   const gameStateRef = useRef<GameState | null>(null);
 
   // Detect server IP (for QR code)
@@ -258,6 +259,36 @@ export default function App() {
         scoreText.text = String(ship.score);
       }
     }
+
+    // === RENDER EXPLOSIONS ===
+    const activeExplosionIds = new Set((state.explosions || []).map((e) => e.id));
+
+    for (const [id, sprite] of explosionsRef.current) {
+      if (!activeExplosionIds.has(id)) {
+        app.stage.removeChild(sprite);
+        sprite.destroy();
+        explosionsRef.current.delete(id);
+      }
+    }
+
+    for (const explosion of state.explosions || []) {
+      let container = explosionsRef.current.get(explosion.id);
+
+      if (!container) {
+        container = createExplosionSprite(explosion);
+        explosionsRef.current.set(explosion.id, container);
+        app.stage.addChild(container);
+      }
+
+      const pos = toScreen(explosion.position.x, explosion.position.y);
+      container.position.set(pos.x, pos.y);
+
+      // Animate explosion: grow and fade
+      const progress = 1 - (explosion.lifetime / explosion.maxLifetime);
+      const explosionScale = scale * (0.5 + progress * 1.5); // Grow from 0.5x to 2x
+      container.scale.set(explosionScale);
+      container.alpha = 1 - progress * 0.8; // Fade from 1 to 0.2
+    }
   }, []);
 
   return (
@@ -441,6 +472,47 @@ function createBulletSprite(bullet: Bullet): PIXI.Graphics {
   gfx.fill({ color, alpha: 0.3 });
 
   return gfx;
+}
+
+function createExplosionSprite(explosion: Explosion): PIXI.Container {
+  const container = new PIXI.Container();
+  const color = parseInt(explosion.color.replace('#', ''), 16);
+
+  // Size based on explosion type
+  const baseSizes = { small: 15, medium: 35, large: 55 };
+  const baseSize = baseSizes[explosion.size];
+
+  // Create multiple particles for explosion effect
+  const particleCount = explosion.size === 'large' ? 12 : explosion.size === 'medium' ? 8 : 5;
+
+  for (let i = 0; i < particleCount; i++) {
+    const particle = new PIXI.Graphics();
+    const angle = (i / particleCount) * Math.PI * 2;
+    const distance = baseSize * (0.3 + Math.random() * 0.7);
+    const particleSize = baseSize * (0.2 + Math.random() * 0.3);
+
+    particle.circle(0, 0, particleSize);
+    particle.fill({ color });
+    particle.position.set(
+      Math.cos(angle) * distance,
+      Math.sin(angle) * distance
+    );
+    container.addChild(particle);
+  }
+
+  // Center glow
+  const centerGlow = new PIXI.Graphics();
+  centerGlow.circle(0, 0, baseSize * 0.6);
+  centerGlow.fill({ color: 0xffffff, alpha: 0.8 });
+  container.addChild(centerGlow);
+
+  // Outer ring
+  const ring = new PIXI.Graphics();
+  ring.circle(0, 0, baseSize);
+  ring.stroke({ color, width: 3, alpha: 0.6 });
+  container.addChild(ring);
+
+  return container;
 }
 
 const overlayStyle: React.CSSProperties = {
