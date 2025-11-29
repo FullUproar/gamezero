@@ -8,7 +8,7 @@ interface ControllerProps {
 
 export function Controller({ ship, onInput }: ControllerProps) {
   const [tiltValue, setTiltValue] = useState(0);
-  const [thrustValue, setThrustValue] = useState(0);
+  const [thrustPressed, setThrustPressed] = useState(false);
   const [firePressed, setFirePressed] = useState(false);
   const [tiltStatus, setTiltStatus] = useState<'checking' | 'enabled' | 'unavailable'>('checking');
 
@@ -57,38 +57,28 @@ export function Controller({ ship, onInput }: ControllerProps) {
     }
   }, []);
 
-  // Listen to device orientation
+  // Listen to device orientation (steering only - thrust via button)
   useEffect(() => {
     if (tiltStatus !== 'enabled') return;
 
     const handleOrientation = (event: DeviceOrientationEvent) => {
-      // In landscape mode:
-      // - beta = left-right tilt (steering)
-      // - gamma = forward-back tilt (thrust)
+      // In landscape mode, beta = left-right tilt (steering)
       const orientation = screen.orientation?.angle || (window.orientation as number) || 0;
       const isLandscape = Math.abs(orientation) === 90 || Math.abs(orientation) === 270;
 
       let steerTilt: number;
-      let thrustTilt: number;
-
       if (isLandscape) {
         // Landscape: beta controls left-right tilt (steering)
-        // Flip sign based on which way landscape is oriented
         const beta = event.beta || 0;
-        const gamma = event.gamma || 0;
-        // Inverted: positive beta = tilt right = turn right
         steerTilt = orientation === 90 || orientation === -270 ? beta : -beta;
-        // Forward tilt (gamma) for thrust - negative gamma = tilted forward
-        thrustTilt = orientation === 90 || orientation === -270 ? gamma : -gamma;
       } else {
         // Portrait: gamma controls left-right tilt (inverted)
         steerTilt = -(event.gamma || 0);
-        thrustTilt = -(event.beta || 0); // Forward tilt in portrait
       }
 
       // Dead zone around neutral position (ignore small tilts)
-      const deadZone = 5; // degrees - smaller for more responsive steering
-      const maxTilt = 25; // degrees - lower for easier full turn
+      const deadZone = 5; // degrees
+      const maxTilt = 25; // degrees
 
       let normalizedSteer: number;
       if (Math.abs(steerTilt) < deadZone) {
@@ -101,12 +91,6 @@ export function Controller({ ship, onInput }: ControllerProps) {
 
       inputRef.current.rotation = normalizedSteer;
       setTiltValue(normalizedSteer);
-
-      // Thrust when tilted forward past threshold (negative values = forward)
-      const thrustThreshold = 22; // degrees of forward tilt to activate thrust (less sensitive)
-      const isThrusting = thrustTilt < -thrustThreshold;
-      inputRef.current.thrust = isThrusting;
-      setThrustValue(Math.max(0, Math.min(1, (-thrustTilt - 10) / 50))); // 0-1 for visual, offset start
     };
 
     window.addEventListener('deviceorientation', handleOrientation);
@@ -122,6 +106,18 @@ export function Controller({ ship, onInput }: ControllerProps) {
   }, [onInput]);
 
   // Touch handlers
+  const handleThrustStart = useCallback((e: React.TouchEvent | React.MouseEvent) => {
+    e.preventDefault();
+    inputRef.current.thrust = true;
+    setThrustPressed(true);
+    if (navigator.vibrate) navigator.vibrate(10);
+  }, []);
+
+  const handleThrustEnd = useCallback(() => {
+    inputRef.current.thrust = false;
+    setThrustPressed(false);
+  }, []);
+
   const handleFireStart = useCallback((e: React.TouchEvent | React.MouseEvent) => {
     e.preventDefault();
     inputRef.current.fire = true;
@@ -203,24 +199,28 @@ export function Controller({ ship, onInput }: ControllerProps) {
         <p style={{ color: '#888', fontSize: '0.8rem' }}>Checking tilt...</p>
       )}
 
-      {/* Thrust indicator bar */}
-      <div style={thrustBarContainerStyle}>
-        <div style={thrustBarBgStyle}>
-          <div
-            style={{
-              ...thrustBarFillStyle,
-              height: `${thrustValue * 100}%`,
-              backgroundColor: inputRef.current.thrust ? '#4ECDC4' : '#1a5a55',
-            }}
-          />
-        </div>
-        <span style={{ color: '#4ECDC4', fontSize: '0.7rem', marginTop: 4 }}>
-          {inputRef.current.thrust ? '🚀' : ''}
-        </span>
-      </div>
-
-      {/* FIRE button - centered */}
+      {/* Button container */}
       <div style={buttonContainerStyle}>
+        {/* THRUST button */}
+        <button
+          style={{
+            ...actionButtonStyle,
+            backgroundColor: thrustPressed ? '#4ECDC4' : '#1a3a38',
+            borderColor: '#4ECDC4',
+            transform: thrustPressed ? 'scale(0.95)' : 'scale(1)',
+          }}
+          onTouchStart={handleThrustStart}
+          onTouchEnd={handleThrustEnd}
+          onTouchCancel={handleThrustEnd}
+          onMouseDown={handleThrustStart}
+          onMouseUp={handleThrustEnd}
+          onMouseLeave={handleThrustEnd}
+        >
+          <span style={buttonIconStyle}>🚀</span>
+          <span style={buttonTextStyle}>THRUST</span>
+        </button>
+
+        {/* FIRE button */}
         <button
           style={{
             ...actionButtonStyle,
@@ -242,7 +242,7 @@ export function Controller({ ship, onInput }: ControllerProps) {
 
       {/* Instructions */}
       <div style={instructionsStyle}>
-        {tiltStatus === 'enabled' ? 'TILT TO STEER • LEAN FORWARD TO THRUST' : 'TILT UNAVAILABLE'}
+        {tiltStatus === 'enabled' ? 'TILT TO STEER' : 'TILT UNAVAILABLE'}
       </div>
     </div>
   );
@@ -374,32 +374,4 @@ const instructionsStyle: React.CSSProperties = {
 
 const deadStyle: React.CSSProperties = {
   textAlign: 'center',
-};
-
-const thrustBarContainerStyle: React.CSSProperties = {
-  position: 'absolute',
-  left: 30,
-  top: '50%',
-  transform: 'translateY(-50%)',
-  display: 'flex',
-  flexDirection: 'column',
-  alignItems: 'center',
-};
-
-const thrustBarBgStyle: React.CSSProperties = {
-  width: 16,
-  height: 120,
-  backgroundColor: '#1a1a2e',
-  borderRadius: 8,
-  position: 'relative',
-  overflow: 'hidden',
-  display: 'flex',
-  flexDirection: 'column',
-  justifyContent: 'flex-end',
-};
-
-const thrustBarFillStyle: React.CSSProperties = {
-  width: '100%',
-  borderRadius: 8,
-  transition: 'height 0.1s ease-out, background-color 0.1s',
 };
