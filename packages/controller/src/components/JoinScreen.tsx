@@ -60,6 +60,13 @@ export function JoinScreen({ initialRoomCode, error, onJoin }: JoinScreenProps) 
 
         {error && <p style={errorStyle}>{error}</p>}
 
+        {/* Validation hint */}
+        {!error && (roomCode.length !== 4 || !playerName.trim()) && (
+          <p style={hintStyle}>
+            {roomCode.length !== 4 ? 'Enter 4-letter room code' : 'Enter your name'}
+          </p>
+        )}
+
         <button
           type="submit"
           disabled={roomCode.length !== 4 || !playerName.trim()}
@@ -76,14 +83,19 @@ export function JoinScreen({ initialRoomCode, error, onJoin }: JoinScreenProps) 
 }
 
 const containerStyle: React.CSSProperties = {
-  width: '100%',
-  height: '100%',
+  width: '100vw',
+  height: '100vh',
+  minHeight: '-webkit-fill-available',
   display: 'flex',
   flexDirection: 'column',
   alignItems: 'center',
   justifyContent: 'center',
   backgroundColor: '#0a0a12',
   padding: '2rem',
+  position: 'fixed',
+  top: 0,
+  left: 0,
+  boxSizing: 'border-box',
 };
 
 const formStyle: React.CSSProperties = {
@@ -135,4 +147,10 @@ const errorStyle: React.CSSProperties = {
   color: '#FF6B6B',
   textAlign: 'center',
   fontSize: '0.9rem',
+};
+
+const hintStyle: React.CSSProperties = {
+  color: '#888',
+  textAlign: 'center',
+  fontSize: '0.85rem',
 };
