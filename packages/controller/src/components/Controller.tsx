@@ -98,8 +98,8 @@ export function Controller({ ship, onInput }: ControllerProps) {
       }
 
       // Dead zone around neutral position (ignore small tilts)
-      const deadZone = 5; // degrees
-      const maxTilt = 25; // degrees
+      const deadZone = 2; // degrees
+      const maxTilt = 10; // degrees - full steering at 10° tilt (very sensitive)
 
       let normalizedSteer: number;
       if (Math.abs(steerTilt) < deadZone) {

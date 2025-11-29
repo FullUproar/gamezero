@@ -76,6 +76,7 @@ export class Room {
       isAlive: true,
       respawnTimer: 0,
       fireCooldown: 0,
+      invulnTimer: GAME_CONFIG.SHIP_INVULN_TIME,
     };
   }
 
@@ -92,8 +93,8 @@ export class Room {
     ship.rotation += input.rotation * GAME_CONFIG.SHIP_ROTATION_SPEED * (1 / GAME_CONFIG.TICK_RATE);
     ship.isThrusting = input.thrust;
 
-    // Handle firing
-    if (input.fire && ship.fireCooldown <= 0) {
+    // Handle firing (blocked while invulnerable)
+    if (input.fire && ship.fireCooldown <= 0 && ship.invulnTimer <= 0) {
       this.fireBullet(ship);
       ship.fireCooldown = GAME_CONFIG.FIRE_COOLDOWN;
     }
@@ -209,19 +210,17 @@ export class Room {
         ship.fireCooldown -= dt;
       }
 
-      // Apply thrust
+      // Invulnerability timer
+      if (ship.invulnTimer > 0) {
+        ship.invulnTimer -= dt;
+      }
+
+      // Apply thrust (no speed limit - go as fast as you want!)
       if (ship.isThrusting) {
         const thrustX = Math.cos(ship.rotation) * GAME_CONFIG.SHIP_ACCELERATION * dt;
         const thrustY = Math.sin(ship.rotation) * GAME_CONFIG.SHIP_ACCELERATION * dt;
         ship.velocity.x += thrustX;
         ship.velocity.y += thrustY;
-
-        // Clamp to max speed
-        const speed = Math.sqrt(ship.velocity.x ** 2 + ship.velocity.y ** 2);
-        if (speed > GAME_CONFIG.SHIP_MAX_SPEED) {
-          ship.velocity.x = (ship.velocity.x / speed) * GAME_CONFIG.SHIP_MAX_SPEED;
-          ship.velocity.y = (ship.velocity.y / speed) * GAME_CONFIG.SHIP_MAX_SPEED;
-        }
       }
 
       // Apply drag
@@ -316,8 +315,8 @@ export class Room {
       if (bulletsToRemove.includes(bullet.id)) continue;
 
       for (const ship of this.ships.values()) {
-        // Don't hit own ship, and skip dead ships
-        if (ship.id === bullet.ownerId || !ship.isAlive) continue;
+        // Don't hit own ship, skip dead ships, skip invulnerable ships
+        if (ship.id === bullet.ownerId || !ship.isAlive || ship.invulnTimer > 0) continue;
 
         if (this.circleCollision(
           bullet.position, GAME_CONFIG.BULLET_RADIUS,
@@ -332,7 +331,7 @@ export class Room {
 
     // Ship vs Asteroid
     for (const ship of this.ships.values()) {
-      if (!ship.isAlive) continue;
+      if (!ship.isAlive || ship.invulnTimer > 0) continue;
 
       for (const asteroid of this.asteroids.values()) {
         if (this.circleCollision(
@@ -349,11 +348,11 @@ export class Room {
     const shipArray = Array.from(this.ships.values());
     for (let i = 0; i < shipArray.length; i++) {
       const ship1 = shipArray[i];
-      if (!ship1.isAlive) continue;
+      if (!ship1.isAlive || ship1.invulnTimer > 0) continue;
 
       for (let j = i + 1; j < shipArray.length; j++) {
         const ship2 = shipArray[j];
-        if (!ship2.isAlive) continue;
+        if (!ship2.isAlive || ship2.invulnTimer > 0) continue;
 
         if (this.circleCollision(
           ship1.position, GAME_CONFIG.SHIP_RADIUS,
@@ -423,6 +422,7 @@ export class Room {
     ship.rotation = Math.random() * Math.PI * 2;
     ship.isAlive = true;
     ship.respawnTimer = 0;
+    ship.invulnTimer = GAME_CONFIG.SHIP_INVULN_TIME;
   }
 
   startGame(): void {

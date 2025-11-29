@@ -242,15 +242,24 @@ export default function App() {
         app.stage.addChild(container);
       }
 
+      // Hide dead ships completely (just show explosion)
+      if (!ship.isAlive) {
+        container.visible = false;
+        continue;
+      }
+
+      container.visible = true;
       const pos = toScreen(ship.position.x, ship.position.y);
       container.position.set(pos.x, pos.y);
       container.rotation = ship.rotation + Math.PI / 2;
       container.scale.set(scale);
-      container.alpha = ship.isAlive ? 1 : 0.3;
+
+      // Ghosted effect when invulnerable
+      container.alpha = ship.invulnTimer > 0 ? 0.4 : 1;
 
       const flame = container.getChildByLabel('flame');
       if (flame) {
-        flame.visible = ship.isThrusting && ship.isAlive;
+        flame.visible = ship.isThrusting;
       }
 
       // Update score display

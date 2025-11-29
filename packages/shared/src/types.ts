@@ -20,6 +20,7 @@ export interface Ship {
   isAlive: boolean;
   respawnTimer: number; // 0 = alive, >0 = seconds until respawn
   fireCooldown: number; // 0 = can fire
+  invulnTimer: number; // >0 = invulnerable (can't shoot or be hit)
 }
 
 // === ASTEROID ===

@@ -9,7 +9,7 @@ export const GAME_CONFIG = {
 
   // Ship
   SHIP_RADIUS: 20,
-  SHIP_MAX_SPEED: 400,
+  SHIP_MAX_SPEED: 1200,
   SHIP_ACCELERATION: 300,
   SHIP_ROTATION_SPEED: 3, // Radians per second (tilt-based)
   SHIP_DRAG: 0.98,
@@ -20,7 +20,7 @@ export const GAME_CONFIG = {
   BULLET_SPEED: 500,
   BULLET_LIFETIME: 1.2, // Seconds
   BULLET_RADIUS: 4,
-  FIRE_COOLDOWN: 0.2, // Seconds between shots
+  FIRE_COOLDOWN: 0.25, // Seconds between shots
 
   // Asteroids
   ASTEROID_SIZES: {
@@ -28,9 +28,9 @@ export const GAME_CONFIG = {
     medium: { radius: 30, score: 50, speed: 90 },
     small: { radius: 15, score: 100, speed: 130 },
   } as const,
-  INITIAL_ASTEROIDS: 5,
-  MAX_ASTEROIDS: 20,
-  ASTEROID_SPAWN_INTERVAL: 8, // Seconds
+  INITIAL_ASTEROIDS: 2,
+  MAX_ASTEROIDS: 10,
+  ASTEROID_SPAWN_INTERVAL: 12, // Seconds
 
   // Scoring
   KILL_SCORE: 200,
