@@ -14,11 +14,19 @@ export function Controller({ ship, onInput }: ControllerProps) {
 
   const inputRef = useRef({ rotation: 0, thrust: false, fire: false });
 
-  // Lock to landscape mode on mount
+  // Lock to landscape mode on mount (requires fullscreen on Android)
   useEffect(() => {
     const lockLandscape = async () => {
       try {
-        // Try to lock screen orientation to landscape
+        // On Android, orientation lock requires fullscreen mode
+        const docEl = document.documentElement;
+        if (docEl.requestFullscreen) {
+          await docEl.requestFullscreen();
+        } else if ((docEl as any).webkitRequestFullscreen) {
+          await (docEl as any).webkitRequestFullscreen();
+        }
+
+        // Now try to lock orientation
         if (screen.orientation && (screen.orientation as any).lock) {
           await (screen.orientation as any).lock('landscape');
           console.log('Screen locked to landscape');
@@ -28,12 +36,25 @@ export function Controller({ ship, onInput }: ControllerProps) {
         console.log('Orientation lock not available:', e);
       }
     };
+
+    // Attempt lock on first touch (needed for fullscreen permission)
+    const handleFirstTouch = () => {
+      lockLandscape();
+      document.removeEventListener('touchstart', handleFirstTouch);
+    };
+    document.addEventListener('touchstart', handleFirstTouch, { once: true });
+
+    // Also try immediately (may work on some browsers)
     lockLandscape();
 
     // Unlock when unmounting
     return () => {
+      document.removeEventListener('touchstart', handleFirstTouch);
       if (screen.orientation && (screen.orientation as any).unlock) {
         (screen.orientation as any).unlock();
+      }
+      if (document.exitFullscreen && document.fullscreenElement) {
+        document.exitFullscreen();
       }
     };
   }, []);
@@ -130,6 +151,16 @@ export function Controller({ ship, onInput }: ControllerProps) {
     setFirePressed(false);
   }, []);
 
+  // Reset button states when ship dies (prevents stuck buttons on respawn)
+  useEffect(() => {
+    if (ship && !ship.isAlive) {
+      inputRef.current.thrust = false;
+      inputRef.current.fire = false;
+      setThrustPressed(false);
+      setFirePressed(false);
+    }
+  }, [ship?.isAlive]);
+
   // Retry tilt permission (for iOS)
   const retryTilt = useCallback(async () => {
     if (typeof (DeviceOrientationEvent as any).requestPermission === 'function') {
@@ -165,28 +196,16 @@ export function Controller({ ship, onInput }: ControllerProps) {
         <div style={{ ...colorBarStyle, backgroundColor: ship.color }} />
       )}
 
-      {/* Header */}
-      <h2 style={{ color: '#4ECDC4', fontSize: '1.2rem', marginBottom: '1rem', opacity: 0.7 }}>
-        {ship?.name || 'CONTROLLER'}
-      </h2>
-
-      {/* Score display */}
-      {ship && (
-        <div style={scoreStyle}>
-          {ship.score}
-        </div>
-      )}
-
-      {/* Tilt indicator */}
-      <div style={tiltIndicatorStyle}>
-        <div
-          style={{
-            ...tiltMarkerStyle,
-            transform: `translateX(${tiltValue * 40}px)`,
-            backgroundColor: tiltStatus === 'enabled' ? '#4ECDC4' : '#666',
-          }}
-        />
-        <div style={tiltCenterStyle} />
+      {/* Header overlay */}
+      <div style={headerOverlayStyle}>
+        <h2 style={{ color: '#4ECDC4', fontSize: '1rem', margin: 0, opacity: 0.7 }}>
+          {ship?.name || 'CONTROLLER'}
+        </h2>
+        {ship && (
+          <div style={scoreOverlayStyle}>
+            {ship.score}
+          </div>
+        )}
       </div>
 
       {/* Tilt status / enable button */}
@@ -199,15 +218,14 @@ export function Controller({ ship, onInput }: ControllerProps) {
         <p style={{ color: '#888', fontSize: '0.8rem' }}>Checking tilt...</p>
       )}
 
-      {/* Button container */}
-      <div style={buttonContainerStyle}>
-        {/* THRUST button */}
-        <button
+      {/* Split-screen touch zones */}
+      <div style={splitContainerStyle}>
+        {/* Left half - THRUST */}
+        <div
           style={{
-            ...actionButtonStyle,
-            backgroundColor: thrustPressed ? '#4ECDC4' : '#1a3a38',
-            borderColor: '#4ECDC4',
-            transform: thrustPressed ? 'scale(0.95)' : 'scale(1)',
+            ...halfZoneStyle,
+            backgroundColor: thrustPressed ? 'rgba(78, 205, 196, 0.3)' : 'rgba(78, 205, 196, 0.08)',
+            borderRight: '1px solid #333',
           }}
           onTouchStart={handleThrustStart}
           onTouchEnd={handleThrustEnd}
@@ -216,17 +234,15 @@ export function Controller({ ship, onInput }: ControllerProps) {
           onMouseUp={handleThrustEnd}
           onMouseLeave={handleThrustEnd}
         >
-          <span style={buttonIconStyle}>🚀</span>
-          <span style={buttonTextStyle}>THRUST</span>
-        </button>
+          <span style={zoneIconStyle}>🚀</span>
+          <span style={zoneLabelStyle}>THRUST</span>
+        </div>
 
-        {/* FIRE button */}
-        <button
+        {/* Right half - FIRE */}
+        <div
           style={{
-            ...actionButtonStyle,
-            backgroundColor: firePressed ? '#FF6B6B' : '#3a1a1a',
-            borderColor: '#FF6B6B',
-            transform: firePressed ? 'scale(0.95)' : 'scale(1)',
+            ...halfZoneStyle,
+            backgroundColor: firePressed ? 'rgba(255, 107, 107, 0.3)' : 'rgba(255, 107, 107, 0.08)',
           }}
           onTouchStart={handleFireStart}
           onTouchEnd={handleFireEnd}
@@ -235,14 +251,26 @@ export function Controller({ ship, onInput }: ControllerProps) {
           onMouseUp={handleFireEnd}
           onMouseLeave={handleFireEnd}
         >
-          <span style={buttonIconStyle}>🔥</span>
-          <span style={buttonTextStyle}>FIRE</span>
-        </button>
+          <span style={zoneIconStyle}>🔥</span>
+          <span style={zoneLabelStyle}>FIRE</span>
+        </div>
       </div>
 
-      {/* Instructions */}
-      <div style={instructionsStyle}>
-        {tiltStatus === 'enabled' ? 'TILT TO STEER' : 'TILT UNAVAILABLE'}
+      {/* Tilt indicator overlay */}
+      <div style={tiltOverlayStyle}>
+        <div style={tiltIndicatorStyle}>
+          <div
+            style={{
+              ...tiltMarkerStyle,
+              transform: `translateX(${tiltValue * 40}px)`,
+              backgroundColor: tiltStatus === 'enabled' ? '#4ECDC4' : '#666',
+            }}
+          />
+          <div style={tiltCenterStyle} />
+        </div>
+        <div style={steerLabelStyle}>
+          {tiltStatus === 'enabled' ? 'TILT TO STEER' : 'TILT UNAVAILABLE'}
+        </div>
       </div>
     </div>
   );
@@ -269,14 +297,25 @@ const colorBarStyle: React.CSSProperties = {
   left: 0,
   right: 0,
   height: 4,
+  zIndex: 10,
 };
 
-const scoreStyle: React.CSSProperties = {
+const headerOverlayStyle: React.CSSProperties = {
   position: 'absolute',
-  top: 20,
-  right: 20,
+  top: 10,
+  left: 0,
+  right: 0,
+  display: 'flex',
+  justifyContent: 'space-between',
+  alignItems: 'center',
+  padding: '0 20px',
+  zIndex: 10,
+  pointerEvents: 'none',
+};
+
+const scoreOverlayStyle: React.CSSProperties = {
   color: '#FFE66D',
-  fontSize: '2rem',
+  fontSize: '1.5rem',
   fontWeight: 'bold',
   fontFamily: 'monospace',
 };
@@ -323,53 +362,64 @@ const tiltButtonStyle: React.CSSProperties = {
   marginBottom: 20,
   cursor: 'pointer',
   fontWeight: 'bold',
+  zIndex: 10,
 };
 
-const buttonContainerStyle: React.CSSProperties = {
+const splitContainerStyle: React.CSSProperties = {
+  position: 'absolute',
+  top: 0,
+  left: 0,
+  right: 0,
+  bottom: 0,
   display: 'flex',
-  gap: '40px',
-  width: '100%',
-  justifyContent: 'center',
-  padding: '0 20px',
+  zIndex: 1,
 };
 
-const actionButtonStyle: React.CSSProperties = {
-  width: '140px',
-  height: '140px',
-  borderRadius: '50%',
-  border: '4px solid',
+const halfZoneStyle: React.CSSProperties = {
+  flex: 1,
   display: 'flex',
   flexDirection: 'column',
   alignItems: 'center',
   justifyContent: 'center',
-  cursor: 'pointer',
-  transition: 'background-color 0.1s, transform 0.1s',
+  transition: 'background-color 0.1s',
   WebkitTapHighlightColor: 'transparent',
   touchAction: 'manipulation',
-  boxShadow: '0 0 20px rgba(0,0,0,0.5)',
+  userSelect: 'none',
+  cursor: 'pointer',
 };
 
-const buttonIconStyle: React.CSSProperties = {
-  fontSize: '2.5rem',
-  marginBottom: '4px',
+const zoneIconStyle: React.CSSProperties = {
+  fontSize: '4rem',
+  marginBottom: '8px',
+  opacity: 0.6,
 };
 
-const buttonTextStyle: React.CSSProperties = {
-  fontSize: '0.9rem',
+const zoneLabelStyle: React.CSSProperties = {
+  fontSize: '1.2rem',
   fontWeight: 'bold',
   color: 'white',
   fontFamily: 'monospace',
-  letterSpacing: '0.1em',
+  letterSpacing: '0.2em',
+  opacity: 0.5,
 };
 
-const instructionsStyle: React.CSSProperties = {
+const tiltOverlayStyle: React.CSSProperties = {
   position: 'absolute',
-  bottom: 30,
+  bottom: 20,
+  left: 0,
+  right: 0,
+  display: 'flex',
+  flexDirection: 'column',
+  alignItems: 'center',
+  zIndex: 5,
+  pointerEvents: 'none',
+};
+
+const steerLabelStyle: React.CSSProperties = {
   color: '#444',
   fontSize: '0.7rem',
   letterSpacing: '0.1em',
-  textAlign: 'center',
-  padding: '0 20px',
+  marginTop: 8,
 };
 
 const deadStyle: React.CSSProperties = {
