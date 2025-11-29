@@ -68,6 +68,7 @@ export interface GameState {
   bullets: Bullet[];
   explosions: Explosion[];
   worldSize: Vector2;
+  timeRemaining: number; // Seconds remaining in game (180 = 3 minutes)
 }
 
 // === PLAYER/ROOM ===
@@ -84,6 +85,7 @@ export interface RoomInfo {
   players: Player[];
   maxPlayers: number;
   phase: GameState['phase'];
+  leaderId: string | null; // First player to join - can start the game
 }
 
 // === INPUT ===

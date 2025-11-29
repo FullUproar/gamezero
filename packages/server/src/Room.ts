@@ -1,6 +1,14 @@
 import type { Ship, Player, GameState, PlayerInput, Asteroid, Bullet, Explosion } from '@game-zero/shared';
 import { GAME_CONFIG } from '@game-zero/shared';
 
+const AI_NAMES = [
+  'Inky', 'Blinky', 'Stinky', 'Clyde', 'Pinky',
+  'Shadow', 'Speedy', 'Bashful', 'Pokey', 'Sue'
+];
+const TOTAL_PLAYERS = 10;
+
+const GAME_DURATION = 180; // 3 minutes
+
 export class Room {
   code: string;
   players: Map<string, Player> = new Map();
@@ -10,9 +18,13 @@ export class Room {
   explosions: Map<string, Explosion> = new Map();
   phase: 'lobby' | 'playing' | 'gameover' = 'lobby';
   tick = 0;
+  leaderId: string | null = null; // First player to join
+  gameTimer = GAME_DURATION; // Seconds remaining
   private colorIndex = 0;
   private asteroidSpawnTimer = 0;
   private idCounter = 0;
+  private aiShipIds: Set<string> = new Set();
+  private aiState: Map<string, { targetId?: string; wanderAngle: number; nextThinkTime: number }> = new Map();
 
   constructor(code: string) {
     this.code = code;
@@ -51,6 +63,11 @@ export class Room {
     };
     this.players.set(id, player);
 
+    // First player becomes the leader
+    if (this.leaderId === null) {
+      this.leaderId = id;
+    }
+
     // Create ship for player
     const ship = this.createShip(id, name, color);
     this.ships.set(id, ship);
@@ -83,6 +100,12 @@ export class Room {
   removePlayer(id: string): void {
     this.players.delete(id);
     this.ships.delete(id);
+
+    // If leader leaves, assign new leader
+    if (this.leaderId === id) {
+      const remainingPlayers = Array.from(this.players.keys());
+      this.leaderId = remainingPlayers.length > 0 ? remainingPlayers[0] : null;
+    }
   }
 
   applyInput(playerId: string, input: PlayerInput): void {
@@ -195,6 +218,14 @@ export class Room {
 
     this.tick++;
 
+    // Countdown game timer
+    this.gameTimer -= dt;
+    if (this.gameTimer <= 0) {
+      this.gameTimer = 0;
+      this.phase = 'gameover';
+      return;
+    }
+
     // Update ships
     for (const ship of this.ships.values()) {
       if (!ship.isAlive) {
@@ -275,6 +306,9 @@ export class Room {
       }
     }
     explosionsToRemove.forEach((id) => this.explosions.delete(id));
+
+    // Update AI ships
+    this.updateAI(dt);
 
     // Check collisions
     this.checkCollisions();
@@ -428,12 +462,114 @@ export class Room {
   startGame(): void {
     this.phase = 'playing';
     this.tick = 0;
+    this.gameTimer = GAME_DURATION;
 
     // Spawn initial asteroids
     for (let i = 0; i < GAME_CONFIG.INITIAL_ASTEROIDS; i++) {
       this.spawnAsteroid('large');
     }
     this.asteroidSpawnTimer = GAME_CONFIG.ASTEROID_SPAWN_INTERVAL;
+
+    // Spawn AI ships to fill up to TOTAL_PLAYERS (10)
+    const humanCount = this.players.size;
+    const aiCount = TOTAL_PLAYERS - humanCount;
+    for (let i = 0; i < aiCount; i++) {
+      const aiId = `ai-${this.generateId()}`;
+      const name = AI_NAMES[i] || `Bot-${i + 1}`;
+      const color = GAME_CONFIG.PLAYER_COLORS[(this.colorIndex++) % GAME_CONFIG.PLAYER_COLORS.length];
+      const ship = this.createShip(aiId, name, color);
+      this.ships.set(aiId, ship);
+      this.aiShipIds.add(aiId);
+      this.aiState.set(aiId, {
+        wanderAngle: Math.random() * Math.PI * 2,
+        nextThinkTime: 0,
+      });
+    }
+  }
+
+  private updateAI(dt: number): void {
+    for (const aiId of this.aiShipIds) {
+      const ship = this.ships.get(aiId);
+      if (!ship || !ship.isAlive) continue;
+
+      let state = this.aiState.get(aiId);
+      if (!state) {
+        state = { wanderAngle: Math.random() * Math.PI * 2, nextThinkTime: 0 };
+        this.aiState.set(aiId, state);
+      }
+
+      // Medium AI: Think moderately (0.5-1.5 seconds) - halfway between smart and stormtrooper
+      state.nextThinkTime -= dt;
+      if (state.nextThinkTime <= 0) {
+        state.nextThinkTime = 0.5 + Math.random() * 1.0;
+
+        // 60% chance to pick a target, 40% to wander
+        if (Math.random() < 0.6) {
+          // Find closest ship to chase (prioritize humans, but also attack other AI)
+          const allTargets = Array.from(this.ships.values()).filter(
+            (s) => s.id !== aiId && s.isAlive && s.invulnTimer <= 0
+          );
+          if (allTargets.length > 0) {
+            // Pick closest target
+            let closest = allTargets[0];
+            let closestDist = Infinity;
+            for (const t of allTargets) {
+              const dx = t.position.x - ship.position.x;
+              const dy = t.position.y - ship.position.y;
+              const dist = dx * dx + dy * dy;
+              if (dist < closestDist) {
+                closestDist = dist;
+                closest = t;
+              }
+            }
+            state.targetId = closest.id;
+          } else {
+            state.targetId = undefined;
+          }
+        } else {
+          state.targetId = undefined;
+          state.wanderAngle += (Math.random() - 0.5) * Math.PI;
+        }
+      }
+
+      // Determine desired angle with reduced lead prediction
+      let desiredAngle = state.wanderAngle;
+      const target = state.targetId ? this.ships.get(state.targetId) : undefined;
+      if (target && target.isAlive) {
+        // Lead the target based on their velocity (reduced prediction)
+        const dx = target.position.x - ship.position.x;
+        const dy = target.position.y - ship.position.y;
+        const dist = Math.sqrt(dx * dx + dy * dy);
+        const bulletTime = dist / GAME_CONFIG.BULLET_SPEED;
+
+        // Predict where target will be (half as accurate)
+        const predictX = target.position.x + target.velocity.x * bulletTime * 0.35;
+        const predictY = target.position.y + target.velocity.y * bulletTime * 0.35;
+
+        desiredAngle = Math.atan2(predictY - ship.position.y, predictX - ship.position.x);
+        // Medium inaccuracy (halfway between skilled and stormtrooper)
+        desiredAngle += (Math.random() - 0.5) * 0.5;
+      }
+
+      // Turn towards desired angle at 75% speed
+      let angleDiff = desiredAngle - ship.rotation;
+      while (angleDiff > Math.PI) angleDiff -= Math.PI * 2;
+      while (angleDiff < -Math.PI) angleDiff += Math.PI * 2;
+
+      const turnSpeed = GAME_CONFIG.SHIP_ROTATION_SPEED * 0.75; // 75% turn speed
+      if (Math.abs(angleDiff) > 0.05) {
+        ship.rotation += Math.sign(angleDiff) * turnSpeed * dt;
+      }
+
+      // Thrust often when chasing, otherwise occasionally
+      ship.isThrusting = target ? Math.random() < 0.7 : Math.random() < 0.3;
+
+      // Fire if roughly facing target (wider tolerance)
+      if (target && Math.abs(angleDiff) < 0.5 && ship.fireCooldown <= 0 && ship.invulnTimer <= 0) {
+        this.fireBullet(ship);
+        ship.fireCooldown = GAME_CONFIG.FIRE_COOLDOWN * 1.5; // Slightly slower fire rate
+      }
+    }
   }
 
   getState(): GameState {
@@ -449,6 +585,7 @@ export class Room {
         x: GAME_CONFIG.WORLD_WIDTH,
         y: GAME_CONFIG.WORLD_HEIGHT,
       },
+      timeRemaining: Math.ceil(this.gameTimer),
     };
   }
 
@@ -458,6 +595,7 @@ export class Room {
       players: Array.from(this.players.values()),
       maxPlayers: GAME_CONFIG.MAX_PLAYERS,
       phase: this.phase,
+      leaderId: this.leaderId,
     };
   }
 

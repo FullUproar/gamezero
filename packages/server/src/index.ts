@@ -157,6 +157,9 @@ class GameServer {
     room.addPlayer(client.id, playerName);
     console.log(`Player ${playerName} joined room ${roomCode}`);
 
+    // Tell the player their ID
+    this.send(client.ws, { type: 'joined', playerId: client.id });
+
     // Send room update to all clients in room
     this.broadcastToRoom(roomCode, { type: 'room_update', room: room.getRoomInfo() });
 
@@ -199,6 +202,18 @@ class GameServer {
     if (!client.roomCode) return;
     const room = this.rooms.get(client.roomCode);
     if (!room) return;
+
+    // Display (TV) or leader can start the game
+    const isDisplay = client.type === 'display';
+    const isLeader = room.leaderId === client.id;
+    if (!isDisplay && !isLeader) {
+      this.send(client.ws, {
+        type: 'error',
+        code: 'NOT_LEADER',
+        message: 'Only the leader can start the game',
+      });
+      return;
+    }
 
     if (room.playerCount < 1) {
       this.send(client.ws, {

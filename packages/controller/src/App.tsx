@@ -12,8 +12,20 @@ export default function App() {
   const [myShip, setMyShip] = useState<Ship | null>(null);
   const [error, setError] = useState<string>('');
   const [debugLog, setDebugLog] = useState<string[]>([]);
+  const [playerId, setPlayerId] = useState<string | null>(null);
+  const [leaderId, setLeaderId] = useState<string | null>(null);
+  const [isLeader, setIsLeader] = useState(false);
 
   const wsRef = useRef<WebSocket | null>(null);
+  const playerIdRef = useRef<string | null>(null);
+  const leaderIdRef = useRef<string | null>(null);
+
+  // Recalculate isLeader whenever playerId or leaderId changes
+  useEffect(() => {
+    const amLeader = !!(playerId && leaderId && playerId === leaderId);
+    console.log('[LEADER CHECK] playerId:', playerId, 'leaderId:', leaderId, 'isLeader:', amLeader);
+    setIsLeader(amLeader);
+  }, [playerId, leaderId]);
 
   // Debug logger that shows on UI
   const log = useCallback((msg: string) => {
@@ -93,6 +105,11 @@ export default function App() {
           log(`Message received: ${message.type}`);
 
           switch (message.type) {
+            case 'joined':
+              log(`Joined with ID: ${message.playerId}`);
+              playerIdRef.current = message.playerId;
+              setPlayerId(message.playerId);
+              break;
             case 'room_update':
               if (message.room?.phase === 'lobby') {
                 log('Room phase: lobby -> waiting');
@@ -100,6 +117,13 @@ export default function App() {
               } else if (message.room?.phase === 'playing') {
                 log('Room phase: playing');
                 setAppState('playing');
+              }
+              // Track leaderId - the useEffect will calculate isLeader
+              if (message.room) {
+                const roomLeaderId = message.room.leaderId;
+                log(`Room update: leaderId=${roomLeaderId}, myId=${playerIdRef.current}`);
+                leaderIdRef.current = roomLeaderId;
+                setLeaderId(roomLeaderId);
               }
               break;
             case 'game_state':
@@ -155,6 +179,13 @@ export default function App() {
     }
   }, []);
 
+  const startGame = useCallback(() => {
+    if (wsRef.current?.readyState === WebSocket.OPEN) {
+      log('Sending start_game');
+      wsRef.current.send(JSON.stringify({ type: 'start_game' }));
+    }
+  }, [log]);
+
   // Render based on state
   if (appState === 'join') {
     return (
@@ -172,9 +203,26 @@ export default function App() {
       <div style={waitingStyle}>
         <h1 style={{ color: '#4ECDC4', marginBottom: '1rem' }}>READY!</h1>
         <p style={{ color: '#888' }}>Room: <span style={{ color: '#FFE66D' }}>{roomCode}</span></p>
-        <p style={{ color: '#888', marginTop: '0.5rem' }}>Waiting for host to start game...</p>
-        <p style={{ color: '#555', marginTop: '1rem', fontSize: '0.8rem' }}>Press START GAME on the TV</p>
-        <div style={pulseStyle} />
+        {isLeader ? (
+          <>
+            <p style={{ color: '#FFE66D', marginTop: '0.5rem' }}>You are the Leader!</p>
+            <button style={startButtonStyle} onClick={startGame}>
+              START GAME
+            </button>
+          </>
+        ) : (
+          <>
+            <p style={{ color: '#888', marginTop: '0.5rem' }}>Waiting for leader to start game...</p>
+            <div style={pulseStyle} />
+          </>
+        )}
+        {/* Debug info */}
+        <div style={{ position: 'fixed', bottom: 10, left: 10, right: 10, backgroundColor: 'rgba(0,0,0,0.8)', padding: 8, borderRadius: 4, fontSize: '0.6rem', color: '#888' }}>
+          <p style={{ margin: 0, color: '#FF6B6B' }}>DEBUG: playerId={playerId || 'null'}, leaderId={leaderId || 'null'}, isLeader={String(isLeader)}</p>
+          {debugLog.slice(-5).map((line, i) => (
+            <p key={i} style={{ margin: 0 }}>{line}</p>
+          ))}
+        </div>
       </div>
     );
   }
@@ -204,6 +252,20 @@ const pulseStyle: React.CSSProperties = {
   backgroundColor: '#4ECDC4',
   marginTop: '2rem',
   animation: 'pulse 1.5s infinite',
+};
+
+const startButtonStyle: React.CSSProperties = {
+  marginTop: '2rem',
+  padding: '1.5rem 3rem',
+  fontSize: '1.5rem',
+  fontWeight: 'bold',
+  color: '#0a0a12',
+  backgroundColor: '#4ECDC4',
+  border: 'none',
+  borderRadius: '12px',
+  cursor: 'pointer',
+  textTransform: 'uppercase',
+  letterSpacing: '2px',
 };
 
 // Add keyframes via style tag

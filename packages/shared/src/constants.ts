@@ -8,28 +8,28 @@ export const GAME_CONFIG = {
   BROADCAST_RATE: 30, // State broadcasts per second
 
   // Ship
-  SHIP_RADIUS: 20,
+  SHIP_RADIUS: 8, // Hitbox radius (visual size is larger)
   SHIP_MAX_SPEED: 1200,
-  SHIP_ACCELERATION: 300,
-  SHIP_ROTATION_SPEED: 3, // Radians per second (tilt-based)
-  SHIP_DRAG: 0.98,
+  SHIP_ACCELERATION: 120, // Punchy acceleration
+  SHIP_ROTATION_SPEED: 3.0, // Radians per second (tilt-based) - 2.5x faster
+  SHIP_DRAG: 0.995, // Half of previous max speed
   SHIP_RESPAWN_TIME: 3, // Seconds
   SHIP_INVULN_TIME: 2, // Seconds of invulnerability after spawn
 
   // Bullets
-  BULLET_SPEED: 500,
+  BULLET_SPEED: 345, // 2.5x faster
   BULLET_LIFETIME: 1.2, // Seconds
-  BULLET_RADIUS: 4,
-  FIRE_COOLDOWN: 0.25, // Seconds between shots
+  BULLET_RADIUS: 1.5, // Half size
+  FIRE_COOLDOWN: 0.625, // Seconds between shots (doubled fire rate)
 
   // Asteroids
   ASTEROID_SIZES: {
-    large: { radius: 50, score: 20, speed: 60 },
-    medium: { radius: 30, score: 50, speed: 90 },
-    small: { radius: 15, score: 100, speed: 130 },
+    large: { radius: 25, score: 20, speed: 60 },
+    medium: { radius: 15, score: 50, speed: 90 },
+    small: { radius: 8, score: 100, speed: 130 },
   } as const,
-  INITIAL_ASTEROIDS: 2,
-  MAX_ASTEROIDS: 10,
+  INITIAL_ASTEROIDS: 0,
+  MAX_ASTEROIDS: 0,
   ASTEROID_SPAWN_INTERVAL: 12, // Seconds
 
   // Scoring

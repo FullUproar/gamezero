@@ -4,7 +4,7 @@ import QRCode from 'qrcode';
 import type { ServerMessage, GameState, RoomInfo, Ship, Asteroid, Bullet, Explosion } from '@game-zero/shared';
 import { SERVER_PORT, CONTROLLER_PORT, CONTROLLER_URL, GAME_CONFIG } from '@game-zero/shared';
 
-type AppState = 'connecting' | 'lobby' | 'playing';
+type AppState = 'connecting' | 'lobby' | 'playing' | 'gameover';
 
 export default function App() {
   const [appState, setAppState] = useState<AppState>('connecting');
@@ -21,6 +21,12 @@ export default function App() {
   const bulletsRef = useRef<Map<string, PIXI.Graphics>>(new Map());
   const explosionsRef = useRef<Map<string, PIXI.Container>>(new Map());
   const gameStateRef = useRef<GameState | null>(null);
+
+  // UI state for timer/scores (separate from ref to trigger re-renders)
+  const [displayState, setDisplayState] = useState<{ timeRemaining: number; ships: Ship[] }>({
+    timeRemaining: 180,
+    ships: [],
+  });
 
   // Detect server IP (for QR code)
   useEffect(() => {
@@ -138,10 +144,21 @@ export default function App() {
         setRoomInfo(message.room);
         if (message.room.phase === 'playing') {
           setAppState('playing');
+        } else if (message.room.phase === 'gameover') {
+          setAppState('gameover');
         }
         break;
       case 'game_state':
         gameStateRef.current = message.state;
+        // Update display state for UI (timer, scores)
+        setDisplayState({
+          timeRemaining: message.state.timeRemaining,
+          ships: message.state.ships,
+        });
+        // Check for gameover
+        if (message.state.phase === 'gameover') {
+          setAppState('gameover');
+        }
         break;
       case 'error':
         console.error('Server error:', message.message);
@@ -366,21 +383,34 @@ export default function App() {
 
       {appState === 'playing' && roomCode && (
         <>
-          {/* Room code + QR in corner */}
-          <div style={{ position: 'absolute', top: 20, right: 20, textAlign: 'right' }}>
-            <p style={{ color: '#FFE66D', fontSize: '1.5rem', opacity: 0.7 }}>{roomCode}</p>
-            {qrDataUrl && (
-              <img
-                src={qrDataUrl}
-                alt="QR"
-                style={{ width: 80, height: 80, opacity: 0.7, marginTop: 10 }}
-              />
-            )}
-          </div>
+          {/* Right panel - Timer and Scores */}
+          <div style={scorePanelStyle}>
+            {/* Timer */}
+            <div style={timerStyle}>
+              {formatTime(displayState.timeRemaining)}
+            </div>
 
-          {/* Scoreboard */}
-          <div style={{ position: 'absolute', top: 20, left: 20 }}>
-            {gameStateRef.current?.ships
+            {/* Divider */}
+            <div style={{ borderBottom: '1px solid #333', margin: '10px 0' }} />
+
+            {/* Room code + QR */}
+            <div style={{ textAlign: 'center', marginBottom: 10 }}>
+              <span style={{ color: '#FFE66D', fontSize: '1rem', opacity: 0.7 }}>{roomCode}</span>
+              {qrDataUrl && (
+                <img
+                  src={qrDataUrl}
+                  alt="QR"
+                  style={{ width: 60, height: 60, opacity: 0.7, marginTop: 5, display: 'block', margin: '5px auto 0' }}
+                />
+              )}
+            </div>
+
+            {/* Divider */}
+            <div style={{ borderBottom: '1px solid #333', margin: '10px 0' }} />
+
+            {/* Scoreboard */}
+            <div style={{ fontSize: '0.8rem', color: '#888', marginBottom: 5 }}>SCORES</div>
+            {displayState.ships
               .slice()
               .sort((a, b) => b.score - a.score)
               .map((ship, i) => (
@@ -388,43 +418,98 @@ export default function App() {
                   key={ship.id}
                   style={{
                     color: ship.color,
-                    fontSize: '1.2rem',
-                    opacity: ship.isAlive ? 1 : 0.5,
-                    marginBottom: 4,
+                    fontSize: '1rem',
+                    opacity: ship.isAlive ? 1 : 0.4,
+                    marginBottom: 3,
+                    display: 'flex',
+                    justifyContent: 'space-between',
                   }}
                 >
-                  {i + 1}. {ship.name}: {ship.score}
+                  <span>{i + 1}. {ship.name}</span>
+                  <span style={{ fontFamily: 'monospace' }}>{ship.score}</span>
                 </div>
               ))}
           </div>
         </>
       )}
+
+      {/* Gameover Screen */}
+      {appState === 'gameover' && displayState.ships.length > 0 && (
+        <div style={gameoverOverlayStyle}>
+          <h1 style={{ color: '#FFE66D', fontSize: '4rem', marginBottom: '1rem' }}>GAME OVER</h1>
+
+          <div style={rankingContainerStyle}>
+            <h2 style={{ color: '#4ECDC4', marginBottom: '1.5rem' }}>FINAL RANKINGS</h2>
+            {displayState.ships
+              .slice()
+              .sort((a, b) => b.score - a.score)
+              .map((ship, i) => (
+                <div
+                  key={ship.id}
+                  style={{
+                    ...rankingRowStyle,
+                    backgroundColor: i === 0 ? 'rgba(255, 230, 109, 0.2)' : 'transparent',
+                    borderColor: i === 0 ? '#FFE66D' : '#333',
+                  }}
+                >
+                  <span style={{ color: i === 0 ? '#FFE66D' : '#888', fontSize: '2rem', width: 50 }}>
+                    {i === 0 ? '🏆' : `${i + 1}.`}
+                  </span>
+                  <span style={{ color: ship.color, flex: 1, fontSize: '1.5rem' }}>{ship.name}</span>
+                  <span style={{ color: '#fff', fontSize: '1.5rem', fontFamily: 'monospace' }}>{ship.score}</span>
+                </div>
+              ))}
+          </div>
+
+          <p style={{ color: '#666', marginTop: '2rem' }}>Refresh page to play again</p>
+        </div>
+      )}
     </div>
   );
 }
 
+// 10 unique ship shape designs (scaled to 40% - doubled again)
+const SHIP_SHAPES: Array<{ body: Array<{x: number, y: number}>, flame: Array<{x: number, y: number}> }> = [
+  // 0: Classic arrow
+  { body: [{x:0,y:-10},{x:-7.2,y:7.2},{x:0,y:4},{x:7.2,y:7.2}], flame: [{x:-2.4,y:4.8},{x:0,y:14},{x:2.4,y:4.8}] },
+  // 1: Dart/needle
+  { body: [{x:0,y:-12},{x:-3.2,y:8},{x:0,y:6},{x:3.2,y:8}], flame: [{x:-1.6,y:6.4},{x:0,y:15.2},{x:1.6,y:6.4}] },
+  // 2: Wide wings
+  { body: [{x:0,y:-8},{x:-10,y:6},{x:-4,y:3.2},{x:0,y:4.8},{x:4,y:3.2},{x:10,y:6}], flame: [{x:-2,y:4},{x:0,y:12},{x:2,y:4}] },
+  // 3: Diamond
+  { body: [{x:0,y:-10},{x:-6,y:0},{x:0,y:8},{x:6,y:0}], flame: [{x:-2,y:6},{x:0,y:14},{x:2,y:6}] },
+  // 4: Trident
+  { body: [{x:0,y:-11.2},{x:-2,y:-4},{x:-7.2,y:-6},{x:-4.8,y:7.2},{x:0,y:4.8},{x:4.8,y:7.2},{x:7.2,y:-6},{x:2,y:-4}], flame: [{x:-2,y:4.8},{x:0,y:12.8},{x:2,y:4.8}] },
+  // 5: Bat wings
+  { body: [{x:0,y:-8.8},{x:-8.8,y:2},{x:-6,y:7.2},{x:0,y:4},{x:6,y:7.2},{x:8.8,y:2}], flame: [{x:-2,y:4.8},{x:0,y:12.8},{x:2,y:4.8}] },
+  // 6: Stealth/angular
+  { body: [{x:0,y:-10},{x:-8,y:4},{x:-6,y:7.2},{x:-2,y:4.8},{x:0,y:7.2},{x:2,y:4.8},{x:6,y:7.2},{x:8,y:4}], flame: [{x:-1.2,y:5.6},{x:0,y:12},{x:1.2,y:5.6}] },
+  // 7: Rocket
+  { body: [{x:0,y:-11.2},{x:-4,y:-4},{x:-4,y:6},{x:-6,y:8},{x:0,y:4.8},{x:6,y:8},{x:4,y:6},{x:4,y:-4}], flame: [{x:-2.4,y:5.6},{x:0,y:14},{x:2.4,y:5.6}] },
+  // 8: X-wing style
+  { body: [{x:0,y:-10},{x:-3.2,y:0},{x:-8,y:8},{x:-2,y:4},{x:0,y:6},{x:2,y:4},{x:8,y:8},{x:3.2,y:0}], flame: [{x:-1.6,y:4.8},{x:0,y:11.2},{x:1.6,y:4.8}] },
+  // 9: Crescent
+  { body: [{x:0,y:-8.8},{x:-7.2,y:-2},{x:-8,y:6},{x:-3.2,y:3.2},{x:0,y:6},{x:3.2,y:3.2},{x:8,y:6},{x:7.2,y:-2}], flame: [{x:-2,y:4.8},{x:0,y:12},{x:2,y:4.8}] },
+];
+
 function createShipSprite(ship: Ship): PIXI.Container {
   const container = new PIXI.Container();
 
+  // Determine shape index from color (colors are assigned in order)
+  const colorIndex = GAME_CONFIG.PLAYER_COLORS.indexOf(ship.color);
+  const shapeIndex = colorIndex >= 0 ? colorIndex % SHIP_SHAPES.length : 0;
+  const shape = SHIP_SHAPES[shapeIndex];
+
   const body = new PIXI.Graphics();
   const color = parseInt(ship.color.replace('#', ''), 16);
-  body.poly([
-    { x: 0, y: -25 },
-    { x: -18, y: 18 },
-    { x: 0, y: 10 },
-    { x: 18, y: 18 },
-  ]);
+  body.poly(shape.body);
   body.fill({ color });
   body.stroke({ color: 0xffffff, width: 2, alpha: 0.5 });
   container.addChild(body);
 
   const flame = new PIXI.Graphics();
   flame.label = 'flame';
-  flame.poly([
-    { x: -8, y: 15 },
-    { x: 0, y: 40 },
-    { x: 8, y: 15 },
-  ]);
+  flame.poly(shape.flame);
   flame.fill({ color: 0xff6600 });
   flame.visible = false;
   container.addChild(flame);
@@ -550,3 +635,60 @@ const buttonStyle: React.CSSProperties = {
   cursor: 'pointer',
   transition: 'transform 0.1s',
 };
+
+const scorePanelStyle: React.CSSProperties = {
+  position: 'absolute',
+  top: 20,
+  right: 20,
+  width: 200,
+  backgroundColor: 'rgba(10, 10, 18, 0.85)',
+  border: '1px solid #333',
+  borderRadius: 8,
+  padding: 15,
+};
+
+const timerStyle: React.CSSProperties = {
+  fontSize: '2.5rem',
+  fontFamily: 'Courier New',
+  fontWeight: 'bold',
+  color: '#FFE66D',
+  textAlign: 'center',
+};
+
+const gameoverOverlayStyle: React.CSSProperties = {
+  position: 'absolute',
+  top: 0,
+  left: 0,
+  right: 0,
+  bottom: 0,
+  display: 'flex',
+  flexDirection: 'column',
+  alignItems: 'center',
+  justifyContent: 'center',
+  backgroundColor: 'rgba(10, 10, 18, 0.95)',
+  zIndex: 100,
+};
+
+const rankingContainerStyle: React.CSSProperties = {
+  backgroundColor: 'rgba(30, 30, 50, 0.8)',
+  border: '2px solid #4ECDC4',
+  borderRadius: 12,
+  padding: '2rem',
+  minWidth: 400,
+  maxWidth: 600,
+};
+
+const rankingRowStyle: React.CSSProperties = {
+  display: 'flex',
+  alignItems: 'center',
+  padding: '0.75rem 1rem',
+  marginBottom: 8,
+  border: '1px solid #333',
+  borderRadius: 6,
+};
+
+function formatTime(seconds: number): string {
+  const mins = Math.floor(seconds / 60);
+  const secs = Math.floor(seconds % 60);
+  return `${mins}:${secs.toString().padStart(2, '0')}`;
+}

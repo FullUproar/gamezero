@@ -56,6 +56,11 @@ export interface ErrorMessage {
   message: string;
 }
 
+export interface JoinedMessage {
+  type: 'joined';
+  playerId: string;
+}
+
 // === UNION TYPES ===
 
 export type ClientMessage =
@@ -70,4 +75,5 @@ export type ServerMessage =
   | RoomCreatedMessage
   | RoomUpdateMessage
   | GameStateMessage
-  | ErrorMessage;
+  | ErrorMessage
+  | JoinedMessage;
