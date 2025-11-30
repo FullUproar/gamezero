@@ -1,4 +1,4 @@
-import type { PlayerInput, RoomInfo, GameState } from './types';
+import type { PlayerInput, RoomInfo, GameState, GameMode } from './types';
 
 // === CLIENT -> SERVER (Controller) ===
 
@@ -15,6 +15,11 @@ export interface PlayerInputMessage {
 
 export interface LeaveRoomMessage {
   type: 'leave_room';
+}
+
+export interface SetGameModeMessage {
+  type: 'set_game_mode';
+  gameMode: GameMode;
 }
 
 // === CLIENT -> SERVER (Display) ===
@@ -67,6 +72,7 @@ export type ClientMessage =
   | JoinRoomMessage
   | PlayerInputMessage
   | LeaveRoomMessage
+  | SetGameModeMessage
   | CreateRoomMessage
   | StartGameMessage
   | DisplayConnectMessage;

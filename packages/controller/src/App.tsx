@@ -1,6 +1,6 @@
 import React, { useEffect, useState, useRef, useCallback } from 'react';
-import type { ServerMessage, Ship } from '@game-zero/shared';
-import { SERVER_PORT } from '@game-zero/shared';
+import type { ServerMessage, Ship, GameMode } from '@game-zero/shared';
+import { SERVER_PORT, GAME_MODE_NAMES, GAME_MODE_DESCRIPTIONS } from '@game-zero/shared';
 import { JoinScreen } from './components/JoinScreen';
 import { Controller } from './components/Controller';
 
@@ -15,6 +15,7 @@ export default function App() {
   const [playerId, setPlayerId] = useState<string | null>(null);
   const [leaderId, setLeaderId] = useState<string | null>(null);
   const [isLeader, setIsLeader] = useState(false);
+  const [gameMode, setGameMode] = useState<GameMode>('ffa');
 
   const wsRef = useRef<WebSocket | null>(null);
   const playerIdRef = useRef<string | null>(null);
@@ -121,9 +122,13 @@ export default function App() {
               // Track leaderId - the useEffect will calculate isLeader
               if (message.room) {
                 const roomLeaderId = message.room.leaderId;
-                log(`Room update: leaderId=${roomLeaderId}, myId=${playerIdRef.current}`);
+                log(`Room update: leaderId=${roomLeaderId}, myId=${playerIdRef.current}, mode=${message.room.gameMode}`);
                 leaderIdRef.current = roomLeaderId;
                 setLeaderId(roomLeaderId);
+                // Track game mode
+                if (message.room.gameMode) {
+                  setGameMode(message.room.gameMode);
+                }
               }
               break;
             case 'game_state':
@@ -186,6 +191,13 @@ export default function App() {
     }
   }, [log]);
 
+  const changeGameMode = useCallback((mode: GameMode) => {
+    if (wsRef.current?.readyState === WebSocket.OPEN) {
+      log(`Sending set_game_mode: ${mode}`);
+      wsRef.current.send(JSON.stringify({ type: 'set_game_mode', gameMode: mode }));
+    }
+  }, [log]);
+
   // Render based on state
   if (appState === 'join') {
     return (
@@ -199,13 +211,46 @@ export default function App() {
   }
 
   if (appState === 'waiting') {
+    const gameModes: GameMode[] = ['ffa', 'asteroid_hunters', 'knockout'];
+
     return (
       <div style={waitingStyle}>
         <h1 style={{ color: '#4ECDC4', marginBottom: '1rem' }}>READY!</h1>
         <p style={{ color: '#888' }}>Room: <span style={{ color: '#FFE66D' }}>{roomCode}</span></p>
+
+        {/* Current game mode display */}
+        <div style={{ marginTop: '1rem', textAlign: 'center' }}>
+          <p style={{ color: '#888', fontSize: '0.9rem', margin: 0 }}>Game Mode:</p>
+          <p style={{ color: '#4ECDC4', fontSize: '1.2rem', fontWeight: 'bold', margin: '0.25rem 0' }}>
+            {GAME_MODE_NAMES[gameMode]}
+          </p>
+          <p style={{ color: '#666', fontSize: '0.75rem', margin: 0 }}>
+            {GAME_MODE_DESCRIPTIONS[gameMode]}
+          </p>
+        </div>
+
         {isLeader ? (
           <>
-            <p style={{ color: '#FFE66D', marginTop: '0.5rem' }}>You are the Leader!</p>
+            <p style={{ color: '#FFE66D', marginTop: '1rem' }}>You are the Leader!</p>
+
+            {/* Game mode selector */}
+            <div style={modeSelectorContainer}>
+              {gameModes.map((mode) => (
+                <button
+                  key={mode}
+                  style={{
+                    ...modeButtonStyle,
+                    backgroundColor: gameMode === mode ? '#4ECDC4' : 'transparent',
+                    color: gameMode === mode ? '#0a0a12' : '#4ECDC4',
+                    borderColor: '#4ECDC4',
+                  }}
+                  onClick={() => changeGameMode(mode)}
+                >
+                  {GAME_MODE_NAMES[mode]}
+                </button>
+              ))}
+            </div>
+
             <button style={startButtonStyle} onClick={startGame}>
               START GAME
             </button>
@@ -255,7 +300,7 @@ const pulseStyle: React.CSSProperties = {
 };
 
 const startButtonStyle: React.CSSProperties = {
-  marginTop: '2rem',
+  marginTop: '1.5rem',
   padding: '1.5rem 3rem',
   fontSize: '1.5rem',
   fontWeight: 'bold',
@@ -266,6 +311,25 @@ const startButtonStyle: React.CSSProperties = {
   cursor: 'pointer',
   textTransform: 'uppercase',
   letterSpacing: '2px',
+};
+
+const modeSelectorContainer: React.CSSProperties = {
+  display: 'flex',
+  flexDirection: 'column',
+  gap: '0.5rem',
+  marginTop: '1rem',
+  width: '100%',
+  maxWidth: '280px',
+};
+
+const modeButtonStyle: React.CSSProperties = {
+  padding: '0.75rem 1rem',
+  fontSize: '1rem',
+  fontWeight: 'bold',
+  border: '2px solid',
+  borderRadius: '8px',
+  cursor: 'pointer',
+  transition: 'all 0.2s',
 };
 
 // Add keyframes via style tag

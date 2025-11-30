@@ -112,10 +112,46 @@ class GameServer {
       case 'start_game':
         this.startGame(client);
         break;
+      case 'set_game_mode':
+        this.setGameMode(client, message.gameMode);
+        break;
       case 'leave_room':
         this.leaveRoom(client);
         break;
     }
+  }
+
+  private setGameMode(client: Client, gameMode: any): void {
+    if (!client.roomCode) return;
+    const room = this.rooms.get(client.roomCode);
+    if (!room) return;
+
+    // Only display or leader can set game mode
+    const isDisplay = client.type === 'display';
+    const isLeader = room.leaderId === client.id;
+    if (!isDisplay && !isLeader) {
+      this.send(client.ws, {
+        type: 'error',
+        code: 'NOT_LEADER',
+        message: 'Only the leader can change game mode',
+      });
+      return;
+    }
+
+    // Only allow in lobby
+    if (room.phase !== 'lobby') {
+      this.send(client.ws, {
+        type: 'error',
+        code: 'GAME_IN_PROGRESS',
+        message: 'Cannot change game mode while game is in progress',
+      });
+      return;
+    }
+
+    room.setGameMode(gameMode);
+
+    // Broadcast room update
+    this.broadcastToRoom(client.roomCode, { type: 'room_update', room: room.getRoomInfo() });
   }
 
   private createRoom(client: Client): void {

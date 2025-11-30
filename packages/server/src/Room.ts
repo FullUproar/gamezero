@@ -1,4 +1,4 @@
-import type { Ship, Player, GameState, PlayerInput, Asteroid, Bullet, Explosion } from '@game-zero/shared';
+import type { Ship, Player, GameState, PlayerInput, Asteroid, Bullet, Explosion, GameMode, PlayerStats } from '@game-zero/shared';
 import { GAME_CONFIG } from '@game-zero/shared';
 
 const AI_NAMES = [
@@ -8,6 +8,17 @@ const AI_NAMES = [
 const TOTAL_PLAYERS = 10;
 
 const GAME_DURATION = 180; // 3 minutes
+
+// Internal stats tracking
+interface InternalStats {
+  kills: number;
+  deaths: number;
+  shotsFired: number;
+  shotsHit: number;
+  asteroidsDestroyed: number;
+  killedBy: Map<string, number>; // playerId -> count (who killed me)
+  killed: Map<string, number>; // playerId -> count (who I killed)
+}
 
 export class Room {
   code: string;
@@ -20,6 +31,11 @@ export class Room {
   tick = 0;
   leaderId: string | null = null; // First player to join
   gameTimer = GAME_DURATION; // Seconds remaining
+  gameMode: GameMode = 'ffa'; // Default game mode
+
+  // Statistics tracking
+  private stats: Map<string, InternalStats> = new Map();
+
   private colorIndex = 0;
   private asteroidSpawnTimer = 0;
   private idCounter = 0;
@@ -30,8 +46,29 @@ export class Room {
     this.code = code;
   }
 
+  setGameMode(mode: GameMode): void {
+    if (this.phase === 'lobby') {
+      this.gameMode = mode;
+      console.log(`Room ${this.code} game mode set to: ${mode}`);
+    }
+  }
+
   private generateId(): string {
     return `${this.code}-${++this.idCounter}`;
+  }
+
+  private initStats(playerId: string): void {
+    if (!this.stats.has(playerId)) {
+      this.stats.set(playerId, {
+        kills: 0,
+        deaths: 0,
+        shotsFired: 0,
+        shotsHit: 0,
+        asteroidsDestroyed: 0,
+        killedBy: new Map(),
+        killed: new Map(),
+      });
+    }
   }
 
   // Find existing player by name (for duplicate detection)
@@ -71,6 +108,9 @@ export class Room {
     // Create ship for player
     const ship = this.createShip(id, name, color);
     this.ships.set(id, ship);
+
+    // Initialize stats
+    this.initStats(id);
 
     return player;
   }
@@ -139,10 +179,17 @@ export class Room {
       lifetime: GAME_CONFIG.BULLET_LIFETIME,
     };
     this.bullets.set(bullet.id, bullet);
+
+    // Track shots fired
+    const stats = this.stats.get(ship.id);
+    if (stats) {
+      stats.shotsFired++;
+    }
   }
 
   private spawnAsteroid(size: 'large' | 'medium' | 'small' = 'large', position?: { x: number; y: number }): void {
-    if (this.asteroids.size >= GAME_CONFIG.MAX_ASTEROIDS) return;
+    const maxAsteroids = this.gameMode === 'asteroid_hunters' ? 15 : GAME_CONFIG.MAX_ASTEROIDS;
+    if (this.asteroids.size >= maxAsteroids) return;
 
     const config = GAME_CONFIG.ASTEROID_SIZES[size];
     const angle = Math.random() * Math.PI * 2;
@@ -198,6 +245,13 @@ export class Room {
       ship.score += GAME_CONFIG.ASTEROID_SIZES[asteroid.size].score;
     }
 
+    // Track asteroid destroyed
+    const stats = this.stats.get(bulletOwnerId);
+    if (stats) {
+      stats.asteroidsDestroyed++;
+      stats.shotsHit++; // Hitting an asteroid counts as a hit
+    }
+
     // Create explosion
     const explosionSize = asteroid.size === 'large' ? 'large' : asteroid.size === 'medium' ? 'medium' : 'small';
     this.spawnExplosion(asteroid.position, '#888888', explosionSize);
@@ -218,17 +272,29 @@ export class Room {
 
     this.tick++;
 
-    // Countdown game timer
-    this.gameTimer -= dt;
-    if (this.gameTimer <= 0) {
-      this.gameTimer = 0;
-      this.phase = 'gameover';
-      return;
+    // Countdown game timer (not for knockout - knockout ends when 1 left)
+    if (this.gameMode !== 'knockout') {
+      this.gameTimer -= dt;
+      if (this.gameTimer <= 0) {
+        this.gameTimer = 0;
+        this.phase = 'gameover';
+        return;
+      }
+    } else {
+      // Knockout: check if only one ship is alive
+      const aliveShips = Array.from(this.ships.values()).filter(s => s.isAlive);
+      if (aliveShips.length <= 1) {
+        this.phase = 'gameover';
+        return;
+      }
     }
 
     // Update ships
     for (const ship of this.ships.values()) {
       if (!ship.isAlive) {
+        // In knockout mode, dead ships stay dead
+        if (this.gameMode === 'knockout') continue;
+
         ship.respawnTimer -= dt;
         if (ship.respawnTimer <= 0) {
           this.respawnShip(ship);
@@ -281,20 +347,24 @@ export class Room {
     }
     bulletsToRemove.forEach((id) => this.bullets.delete(id));
 
-    // Update asteroids
-    for (const asteroid of this.asteroids.values()) {
-      asteroid.position.x += asteroid.velocity.x * dt;
-      asteroid.position.y += asteroid.velocity.y * dt;
-      asteroid.rotation += asteroid.angularVelocity * dt;
+    // Update asteroids (only in asteroid_hunters mode or if MAX_ASTEROIDS > 0)
+    if (this.gameMode === 'asteroid_hunters' || GAME_CONFIG.MAX_ASTEROIDS > 0) {
+      for (const asteroid of this.asteroids.values()) {
+        asteroid.position.x += asteroid.velocity.x * dt;
+        asteroid.position.y += asteroid.velocity.y * dt;
+        asteroid.rotation += asteroid.angularVelocity * dt;
 
-      this.wrapPosition(asteroid.position);
-    }
+        this.wrapPosition(asteroid.position);
+      }
 
-    // Spawn new asteroids periodically
-    this.asteroidSpawnTimer -= dt;
-    if (this.asteroidSpawnTimer <= 0 && this.asteroids.size < GAME_CONFIG.MAX_ASTEROIDS) {
-      this.spawnAsteroid('large');
-      this.asteroidSpawnTimer = GAME_CONFIG.ASTEROID_SPAWN_INTERVAL;
+      // Spawn new asteroids periodically
+      const spawnInterval = this.gameMode === 'asteroid_hunters' ? 5 : GAME_CONFIG.ASTEROID_SPAWN_INTERVAL;
+      const maxAsteroids = this.gameMode === 'asteroid_hunters' ? 15 : GAME_CONFIG.MAX_ASTEROIDS;
+      this.asteroidSpawnTimer -= dt;
+      if (this.asteroidSpawnTimer <= 0 && this.asteroids.size < maxAsteroids) {
+        this.spawnAsteroid('large');
+        this.asteroidSpawnTimer = spawnInterval;
+      }
     }
 
     // Update explosions
@@ -327,7 +397,7 @@ export class Room {
     const asteroidSplits: { asteroid: Asteroid; ownerId: string }[] = [];
     const shipsToKill: { ship: Ship; killerId?: string }[] = [];
 
-    // Bullet vs Asteroid
+    // Bullet vs Asteroid (only in asteroid_hunters or if asteroids exist)
     for (const bullet of this.bullets.values()) {
       if (bulletsToRemove.includes(bullet.id)) continue;
 
@@ -358,12 +428,18 @@ export class Room {
         )) {
           bulletsToRemove.push(bullet.id);
           shipsToKill.push({ ship, killerId: bullet.ownerId });
+
+          // Track shot hit
+          const shooterStats = this.stats.get(bullet.ownerId);
+          if (shooterStats) {
+            shooterStats.shotsHit++;
+          }
           break;
         }
       }
     }
 
-    // Ship vs Asteroid
+    // Ship vs Asteroid (only if asteroids exist)
     for (const ship of this.ships.values()) {
       if (!ship.isAlive || ship.invulnTimer > 0) continue;
 
@@ -430,11 +506,29 @@ export class Room {
   }
 
   private killShip(ship: Ship, killerId?: string): void {
+    // Track death
+    const victimStats = this.stats.get(ship.id);
+    if (victimStats) {
+      victimStats.deaths++;
+      if (killerId && killerId !== ship.id) {
+        const currentCount = victimStats.killedBy.get(killerId) || 0;
+        victimStats.killedBy.set(killerId, currentCount + 1);
+      }
+    }
+
     // Award points to killer if this was a player kill
     if (killerId && killerId !== ship.id) {
       const killer = this.ships.get(killerId);
       if (killer) {
         killer.score += 50; // Points for killing another player
+      }
+
+      // Track kill for killer
+      const killerStats = this.stats.get(killerId);
+      if (killerStats) {
+        killerStats.kills++;
+        const currentCount = killerStats.killed.get(ship.id) || 0;
+        killerStats.killed.set(ship.id, currentCount + 1);
       }
     }
 
@@ -447,6 +541,9 @@ export class Room {
   }
 
   private respawnShip(ship: Ship): void {
+    // In knockout mode, ships don't respawn
+    if (this.gameMode === 'knockout') return;
+
     const padding = 150;
     ship.position = {
       x: padding + Math.random() * (GAME_CONFIG.WORLD_WIDTH - padding * 2),
@@ -464,11 +561,12 @@ export class Room {
     this.tick = 0;
     this.gameTimer = GAME_DURATION;
 
-    // Spawn initial asteroids
-    for (let i = 0; i < GAME_CONFIG.INITIAL_ASTEROIDS; i++) {
+    // Spawn initial asteroids based on game mode
+    const initialAsteroids = this.gameMode === 'asteroid_hunters' ? 5 : GAME_CONFIG.INITIAL_ASTEROIDS;
+    for (let i = 0; i < initialAsteroids; i++) {
       this.spawnAsteroid('large');
     }
-    this.asteroidSpawnTimer = GAME_CONFIG.ASTEROID_SPAWN_INTERVAL;
+    this.asteroidSpawnTimer = this.gameMode === 'asteroid_hunters' ? 5 : GAME_CONFIG.ASTEROID_SPAWN_INTERVAL;
 
     // Spawn AI ships to fill up to TOTAL_PLAYERS (10)
     const humanCount = this.players.size;
@@ -484,6 +582,8 @@ export class Room {
         wanderAngle: Math.random() * Math.PI * 2,
         nextThinkTime: 0,
       });
+      // Initialize AI stats
+      this.initStats(aiId);
     }
   }
 
@@ -572,6 +672,56 @@ export class Room {
     }
   }
 
+  private getPlayerStats(): PlayerStats[] {
+    const result: PlayerStats[] = [];
+
+    for (const ship of this.ships.values()) {
+      const stats = this.stats.get(ship.id);
+      if (!stats) continue;
+
+      // Find nemesis (who killed this player most)
+      let nemesis: { id: string; name: string; count: number } | null = null;
+      let maxKilledBy = 0;
+      for (const [killerId, count] of stats.killedBy) {
+        if (count > maxKilledBy) {
+          maxKilledBy = count;
+          const killerShip = this.ships.get(killerId);
+          if (killerShip) {
+            nemesis = { id: killerId, name: killerShip.name, count };
+          }
+        }
+      }
+
+      // Find victim (who this player killed most)
+      let victim: { id: string; name: string; count: number } | null = null;
+      let maxKilled = 0;
+      for (const [victimId, count] of stats.killed) {
+        if (count > maxKilled) {
+          maxKilled = count;
+          const victimShip = this.ships.get(victimId);
+          if (victimShip) {
+            victim = { id: victimId, name: victimShip.name, count };
+          }
+        }
+      }
+
+      result.push({
+        playerId: ship.id,
+        playerName: ship.name,
+        playerColor: ship.color,
+        kills: stats.kills,
+        deaths: stats.deaths,
+        shotsFired: stats.shotsFired,
+        shotsHit: stats.shotsHit,
+        asteroidsDestroyed: stats.asteroidsDestroyed,
+        nemesis,
+        victim,
+      });
+    }
+
+    return result;
+  }
+
   getState(): GameState {
     return {
       tick: this.tick,
@@ -586,6 +736,8 @@ export class Room {
         y: GAME_CONFIG.WORLD_HEIGHT,
       },
       timeRemaining: Math.ceil(this.gameTimer),
+      gameMode: this.gameMode,
+      stats: this.getPlayerStats(),
     };
   }
 
@@ -596,6 +748,7 @@ export class Room {
       maxPlayers: GAME_CONFIG.MAX_PLAYERS,
       phase: this.phase,
       leaderId: this.leaderId,
+      gameMode: this.gameMode,
     };
   }
 

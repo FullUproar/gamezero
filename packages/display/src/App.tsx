@@ -1,8 +1,8 @@
 import React, { useEffect, useState, useRef, useCallback } from 'react';
 import * as PIXI from 'pixi.js';
 import QRCode from 'qrcode';
-import type { ServerMessage, GameState, RoomInfo, Ship, Asteroid, Bullet, Explosion } from '@game-zero/shared';
-import { SERVER_PORT, CONTROLLER_PORT, CONTROLLER_URL, GAME_CONFIG } from '@game-zero/shared';
+import type { ServerMessage, GameState, RoomInfo, Ship, Asteroid, Bullet, Explosion, PlayerStats, GameMode } from '@game-zero/shared';
+import { SERVER_PORT, CONTROLLER_PORT, CONTROLLER_URL, GAME_CONFIG, GAME_MODE_NAMES } from '@game-zero/shared';
 
 type AppState = 'connecting' | 'lobby' | 'playing' | 'gameover';
 
@@ -23,9 +23,16 @@ export default function App() {
   const gameStateRef = useRef<GameState | null>(null);
 
   // UI state for timer/scores (separate from ref to trigger re-renders)
-  const [displayState, setDisplayState] = useState<{ timeRemaining: number; ships: Ship[] }>({
+  const [displayState, setDisplayState] = useState<{
+    timeRemaining: number;
+    ships: Ship[];
+    stats: PlayerStats[];
+    gameMode: GameMode;
+  }>({
     timeRemaining: 180,
     ships: [],
+    stats: [],
+    gameMode: 'ffa',
   });
 
   // Detect server IP (for QR code)
@@ -146,18 +153,28 @@ export default function App() {
           setAppState('playing');
         } else if (message.room.phase === 'gameover') {
           setAppState('gameover');
+          // Stop the Pixi ticker to reduce CPU usage
+          if (pixiRef.current) {
+            pixiRef.current.ticker.stop();
+          }
         }
         break;
       case 'game_state':
         gameStateRef.current = message.state;
-        // Update display state for UI (timer, scores)
+        // Update display state for UI (timer, scores, stats)
         setDisplayState({
           timeRemaining: message.state.timeRemaining,
           ships: message.state.ships,
+          stats: message.state.stats || [],
+          gameMode: message.state.gameMode || 'ffa',
         });
         // Check for gameover
         if (message.state.phase === 'gameover') {
           setAppState('gameover');
+          // Stop the Pixi ticker to reduce CPU usage
+          if (pixiRef.current) {
+            pixiRef.current.ticker.stop();
+          }
         }
         break;
       case 'error':
@@ -436,32 +453,83 @@ export default function App() {
       {/* Gameover Screen */}
       {appState === 'gameover' && displayState.ships.length > 0 && (
         <div style={gameoverOverlayStyle}>
-          <h1 style={{ color: '#FFE66D', fontSize: '4rem', marginBottom: '1rem' }}>GAME OVER</h1>
+          <h1 style={{ color: '#FFE66D', fontSize: '3.5rem', marginBottom: '0.5rem' }}>GAME OVER</h1>
+          <p style={{ color: '#4ECDC4', fontSize: '1.2rem', marginBottom: '1.5rem' }}>
+            {GAME_MODE_NAMES[displayState.gameMode]}
+          </p>
 
-          <div style={rankingContainerStyle}>
-            <h2 style={{ color: '#4ECDC4', marginBottom: '1.5rem' }}>FINAL RANKINGS</h2>
-            {displayState.ships
-              .slice()
-              .sort((a, b) => b.score - a.score)
-              .map((ship, i) => (
-                <div
-                  key={ship.id}
-                  style={{
-                    ...rankingRowStyle,
-                    backgroundColor: i === 0 ? 'rgba(255, 230, 109, 0.2)' : 'transparent',
-                    borderColor: i === 0 ? '#FFE66D' : '#333',
-                  }}
-                >
-                  <span style={{ color: i === 0 ? '#FFE66D' : '#888', fontSize: '2rem', width: 50 }}>
-                    {i === 0 ? '🏆' : `${i + 1}.`}
-                  </span>
-                  <span style={{ color: ship.color, flex: 1, fontSize: '1.5rem' }}>{ship.name}</span>
-                  <span style={{ color: '#fff', fontSize: '1.5rem', fontFamily: 'monospace' }}>{ship.score}</span>
-                </div>
-              ))}
+          <div style={{ display: 'flex', gap: '2rem', alignItems: 'flex-start' }}>
+            {/* Rankings */}
+            <div style={rankingContainerStyle}>
+              <h2 style={{ color: '#4ECDC4', marginBottom: '1rem', fontSize: '1.3rem' }}>FINAL RANKINGS</h2>
+              {displayState.ships
+                .slice()
+                .sort((a, b) => b.score - a.score)
+                .map((ship, i) => (
+                  <div
+                    key={ship.id}
+                    style={{
+                      ...rankingRowStyle,
+                      backgroundColor: i === 0 ? 'rgba(255, 230, 109, 0.2)' : 'transparent',
+                      borderColor: i === 0 ? '#FFE66D' : '#333',
+                    }}
+                  >
+                    <span style={{ color: i === 0 ? '#FFE66D' : '#888', fontSize: '1.5rem', width: 40 }}>
+                      {i === 0 ? '🏆' : `${i + 1}.`}
+                    </span>
+                    <span style={{ color: ship.color, flex: 1, fontSize: '1.2rem' }}>{ship.name}</span>
+                    <span style={{ color: '#fff', fontSize: '1.2rem', fontFamily: 'monospace' }}>{ship.score}</span>
+                  </div>
+                ))}
+            </div>
+
+            {/* Statistics */}
+            <div style={statsContainerStyle}>
+              <h2 style={{ color: '#4ECDC4', marginBottom: '1rem', fontSize: '1.3rem' }}>PLAYER STATS</h2>
+              {displayState.stats
+                .filter(s => !s.playerId.startsWith('ai-')) // Only show human players
+                .map((stat) => {
+                  const accuracy = stat.shotsFired > 0 ? Math.round((stat.shotsHit / stat.shotsFired) * 100) : 0;
+                  return (
+                    <div key={stat.playerId} style={statCardStyle}>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
+                        <span style={{ color: stat.playerColor, fontSize: '1.1rem', fontWeight: 'bold' }}>
+                          {stat.playerName}
+                        </span>
+                      </div>
+                      <div style={statRowStyle}>
+                        <span>K/D</span>
+                        <span>{stat.kills}/{stat.deaths}</span>
+                      </div>
+                      <div style={statRowStyle}>
+                        <span>Accuracy</span>
+                        <span>{accuracy}%</span>
+                      </div>
+                      {displayState.gameMode === 'asteroid_hunters' && (
+                        <div style={statRowStyle}>
+                          <span>Asteroids</span>
+                          <span>{stat.asteroidsDestroyed}</span>
+                        </div>
+                      )}
+                      {stat.victim && (
+                        <div style={statRowStyle}>
+                          <span>Hunted</span>
+                          <span style={{ color: '#FF6B6B' }}>{stat.victim.name} ({stat.victim.count}x)</span>
+                        </div>
+                      )}
+                      {stat.nemesis && (
+                        <div style={statRowStyle}>
+                          <span>Nemesis</span>
+                          <span style={{ color: '#FF6B6B' }}>{stat.nemesis.name} ({stat.nemesis.count}x)</span>
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
+            </div>
           </div>
 
-          <p style={{ color: '#666', marginTop: '2rem' }}>Refresh page to play again</p>
+          <p style={{ color: '#666', marginTop: '1.5rem' }}>Refresh page to play again</p>
         </div>
       )}
     </div>
@@ -638,13 +706,15 @@ const buttonStyle: React.CSSProperties = {
 
 const scorePanelStyle: React.CSSProperties = {
   position: 'absolute',
-  top: 20,
-  right: 20,
-  width: 200,
-  backgroundColor: 'rgba(10, 10, 18, 0.85)',
-  border: '1px solid #333',
-  borderRadius: 8,
-  padding: 15,
+  top: 0,
+  right: 0,
+  bottom: 0,
+  width: 220,
+  backgroundColor: 'rgba(10, 10, 18, 0.95)',
+  borderLeft: '2px solid #4ECDC4',
+  padding: '20px 15px',
+  display: 'flex',
+  flexDirection: 'column',
 };
 
 const timerStyle: React.CSSProperties = {
@@ -685,6 +755,33 @@ const rankingRowStyle: React.CSSProperties = {
   marginBottom: 8,
   border: '1px solid #333',
   borderRadius: 6,
+};
+
+const statsContainerStyle: React.CSSProperties = {
+  backgroundColor: 'rgba(30, 30, 50, 0.8)',
+  border: '2px solid #4ECDC4',
+  borderRadius: 12,
+  padding: '1.5rem',
+  minWidth: 300,
+  maxWidth: 450,
+  maxHeight: '60vh',
+  overflowY: 'auto',
+};
+
+const statCardStyle: React.CSSProperties = {
+  backgroundColor: 'rgba(20, 20, 35, 0.9)',
+  border: '1px solid #333',
+  borderRadius: 8,
+  padding: '0.75rem',
+  marginBottom: '0.75rem',
+};
+
+const statRowStyle: React.CSSProperties = {
+  display: 'flex',
+  justifyContent: 'space-between',
+  fontSize: '0.85rem',
+  color: '#aaa',
+  marginBottom: 4,
 };
 
 function formatTime(seconds: number): string {

@@ -57,6 +57,37 @@ export interface Explosion {
   maxLifetime: number; // For calculating progress
 }
 
+// === GAME MODES ===
+
+export type GameMode = 'ffa' | 'asteroid_hunters' | 'knockout';
+
+export const GAME_MODE_NAMES: Record<GameMode, string> = {
+  ffa: 'Free-for-All',
+  asteroid_hunters: 'Asteroid Hunters',
+  knockout: 'Knockout',
+};
+
+export const GAME_MODE_DESCRIPTIONS: Record<GameMode, string> = {
+  ffa: 'PvP combat, respawn on death, highest score wins',
+  asteroid_hunters: 'PvP + Asteroids, respawn on death, highest score wins',
+  knockout: 'One life only, last one standing wins',
+};
+
+// === PLAYER STATS ===
+
+export interface PlayerStats {
+  playerId: string;
+  playerName: string;
+  playerColor: string;
+  kills: number;
+  deaths: number;
+  shotsFired: number;
+  shotsHit: number;
+  asteroidsDestroyed: number;
+  nemesis: { id: string; name: string; count: number } | null; // Who killed this player most
+  victim: { id: string; name: string; count: number } | null; // Who this player killed most
+}
+
 // === GAME STATE ===
 
 export interface GameState {
@@ -69,6 +100,8 @@ export interface GameState {
   explosions: Explosion[];
   worldSize: Vector2;
   timeRemaining: number; // Seconds remaining in game (180 = 3 minutes)
+  gameMode: GameMode;
+  stats: PlayerStats[]; // Player statistics
 }
 
 // === PLAYER/ROOM ===
@@ -86,6 +119,7 @@ export interface RoomInfo {
   maxPlayers: number;
   phase: GameState['phase'];
   leaderId: string | null; // First player to join - can start the game
+  gameMode: GameMode;
 }
 
 // === INPUT ===
