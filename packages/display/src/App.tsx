@@ -61,6 +61,8 @@ export default function App() {
   useEffect(() => {
     if (!canvasRef.current || pixiRef.current) return;
 
+    let onResize: (() => void) | null = null;
+
     const initPixi = async () => {
       const app = new PIXI.Application();
       await app.init({
@@ -74,7 +76,7 @@ export default function App() {
       });
       pixiRef.current = app;
 
-      const onResize = () => {
+      onResize = () => {
         app.renderer.resize(window.innerWidth, window.innerHeight);
       };
       window.addEventListener('resize', onResize);
@@ -87,6 +89,21 @@ export default function App() {
     initPixi();
 
     return () => {
+      // Remove resize listener
+      if (onResize) {
+        window.removeEventListener('resize', onResize);
+      }
+
+      // Clear sprite refs (they hold references to Pixi objects)
+      shipsRef.current.clear();
+      asteroidsRef.current.clear();
+      bulletsRef.current.clear();
+      explosionsRef.current.clear();
+
+      // Clear game state ref
+      gameStateRef.current = null;
+
+      // Destroy Pixi app
       pixiRef.current?.destroy(true);
       pixiRef.current = null;
     };

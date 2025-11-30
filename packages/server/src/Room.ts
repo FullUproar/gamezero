@@ -759,4 +759,31 @@ export class Room {
   isEmpty(): boolean {
     return this.players.size === 0;
   }
+
+  // Cleanup after game ends to free memory
+  cleanup(): void {
+    // Clear game objects
+    this.bullets.clear();
+    this.asteroids.clear();
+    this.explosions.clear();
+
+    // Clear AI data
+    this.aiShipIds.clear();
+    this.aiState.clear();
+
+    // Clear AI ships but keep human ships for gameover display
+    for (const shipId of Array.from(this.ships.keys())) {
+      if (shipId.startsWith('ai-')) {
+        this.ships.delete(shipId);
+      }
+    }
+
+    // Clear stats Maps' internal Maps to free memory
+    for (const stat of this.stats.values()) {
+      stat.killedBy.clear();
+      stat.killed.clear();
+    }
+
+    console.log(`Room ${this.code} cleaned up`);
+  }
 }

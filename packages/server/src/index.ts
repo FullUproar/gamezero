@@ -283,6 +283,17 @@ class GameServer {
 
     const state = room.getState();
 
+    // Stop the game loop if the game is over
+    if (state.phase === 'gameover') {
+      const loop = this.gameLoops.get(roomCode);
+      if (loop) {
+        loop.stop();
+        this.gameLoops.delete(roomCode);
+        room.cleanup(); // Free memory from game objects
+        console.log(`Game loop stopped for room ${roomCode} (gameover)`);
+      }
+    }
+
     for (const [ws, client] of this.clients) {
       if (client.roomCode === roomCode) {
         const message: ServerMessage = {

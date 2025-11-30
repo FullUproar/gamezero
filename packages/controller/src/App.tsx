@@ -332,9 +332,10 @@ const modeButtonStyle: React.CSSProperties = {
   transition: 'all 0.2s',
 };
 
-// Add keyframes via style tag
-if (typeof document !== 'undefined') {
+// Add keyframes via style tag (only once)
+if (typeof document !== 'undefined' && !document.getElementById('game-zero-keyframes')) {
   const style = document.createElement('style');
+  style.id = 'game-zero-keyframes';
   style.textContent = `
     @keyframes pulse {
       0%, 100% { transform: scale(1); opacity: 1; }
